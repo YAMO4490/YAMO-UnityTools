@@ -1,0 +1,12 @@
+{
+  "name": "com.yamo.unitytools",
+  "displayName": "YAMO Unity Tools",
+  "version": "0.1.2",
+  "unity": "2021.3",
+  "description": "A set of Unity Editor tools by YAMO",
+  "author": {
+    "name": "YAMO",
+    "url": "https://github.com/YAMO4490"
+  },
+  "_fingerprint": "74bdbea96d01c163ed74f99e81062769a952c8e4"
+}
