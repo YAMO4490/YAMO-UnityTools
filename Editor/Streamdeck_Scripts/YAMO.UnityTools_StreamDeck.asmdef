@@ -1,0 +1,21 @@
+{
+    "name": "YAMO.UnityTools_StreamDeck",
+    "rootNamespace": "",
+    "references": [
+        "GUID:efab180f1046c354d93cc2d82f0cafc9",
+        "GUID:df47e1944d95b7d419dd427cfc9214bf"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "YAMO_STREAMDECK"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
