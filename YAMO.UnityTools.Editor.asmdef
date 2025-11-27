@@ -1,7 +1,11 @@
 {
     "name": "YAMO.UnityTools.Editor",
     "rootNamespace": "",
-    "references": [],
+    "references": [
+        "VRM",
+        "MagicaClothV2",
+        "MagicaClothV2.Editor"
+    ],
     "includePlatforms": [
         "Editor"
     ],
