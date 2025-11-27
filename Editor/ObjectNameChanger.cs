@@ -8,13 +8,13 @@ public class ObjectNameModifier : EditorWindow
     private string suffixText = string.Empty;
 
     private GameObject rootObject;
-    private Dictionary<string, List<Transform>> duplicateGroups = new();
+    // [수정] Unity 2019 호환성을 위해 명시적 타입 선언으로 변경
+    private Dictionary<string, List<Transform>> duplicateGroups = new Dictionary<string, List<Transform>>();
     private Vector2 scroll;
 
     [MenuItem("Tools/Object Name Modifier")]
     public static void ShowWindow()
     {
-        // 변경된 부분: 이미 창이 열려있는지 확인하여 토글(Toggle) 기능 구현
         if (HasOpenInstances<ObjectNameModifier>())
         {
             GetWindow<ObjectNameModifier>().Close();
@@ -50,12 +50,10 @@ public class ObjectNameModifier : EditorWindow
 
         GUILayout.Space(5);
 
-        // ▼▼▼ 추가된 부분: 하위 오브젝트 이름순 정렬 버튼 ▼▼▼
         if (GUILayout.Button("Sort Children by Name (A-Z)") && Selection.activeGameObject != null)
         {
             SortChildrenByName(Selection.activeGameObject);
         }
-        // ▲▲▲ 추가된 부분 끝 ▲▲▲
 
         GUILayout.Space(20);
         EditorGUILayout.LabelField("", GUI.skin.horizontalSlider);
@@ -142,7 +140,8 @@ public class ObjectNameModifier : EditorWindow
     void FindDuplicateNames(GameObject root)
     {
         duplicateGroups.Clear();
-        Dictionary<string, List<Transform>> nameMap = new();
+        // [수정] Unity 2019 호환성을 위해 명시적 타입 선언으로 변경
+        Dictionary<string, List<Transform>> nameMap = new Dictionary<string, List<Transform>>();
 
         foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
         {
@@ -174,25 +173,21 @@ public class ObjectNameModifier : EditorWindow
         }
 
         Debug.Log("Duplicate names have been renamed.");
-        FindDuplicateNames(rootObject); // 재검사
+        FindDuplicateNames(rootObject); 
     }
 
-    // ▼▼▼ 수정된 부분: 하위 오브젝트 이름순 정렬 함수 ▼▼▼
     void SortChildrenByName(GameObject parent)
     {
         if (parent == null) return;
 
-        // 하위 오브젝트 리스트 가져오기
         List<Transform> children = new List<Transform>();
         for (int i = 0; i < parent.transform.childCount; i++)
         {
             children.Add(parent.transform.GetChild(i));
         }
 
-        // 유니티 기본 정렬 순서로 정렬 (대소문자 구분 없음, 자연스러운 숫자 정렬)
         children.Sort((a, b) => EditorUtility.NaturalCompare(a.name, b.name));
 
-        // 정렬된 순서대로 SiblingIndex 재설정
         for (int i = 0; i < children.Count; i++)
         {
             Undo.SetTransformParent(children[i], parent.transform, "Sort Children By Name");
@@ -201,5 +196,4 @@ public class ObjectNameModifier : EditorWindow
 
         Debug.Log($"{parent.name}의 하위 오브젝트들이 이름순으로 정렬되었습니다.");
     }
-    // ▲▲▲ 수정된 부분 끝 ▲▲▲
 }
