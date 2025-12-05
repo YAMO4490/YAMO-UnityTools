@@ -145,6 +145,20 @@ namespace YAMO.Tools
             }
 
             EditorGUILayout.Space();
+            GUILayout.Label("BlendShape Tools", EditorStyles.boldLabel);
+            if (GUILayout.Button("Migrate BlendShapes"))
+            {
+                if (ValidateInputs())
+                {
+                    MigrateBlendShapes();
+                }
+            }
+            if (GUILayout.Button("Reset All BlendShapes (Selected)"))
+            {
+                ResetBlendShapes();
+            }
+
+            EditorGUILayout.Space();
             GUILayout.Label("Log:", EditorStyles.boldLabel);
             scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition, GUILayout.Height(200));
             foreach (var log in logMessages)
@@ -719,6 +733,81 @@ namespace YAMO.Tools
                 }
             }
             return newList.ToArray();
+        }
+
+        private void MigrateBlendShapes()
+        {
+            Log("Starting BlendShape migration...");
+            var sourceRenderers = sourceAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            var targetRenderers = targetAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            var targetDict = targetRenderers.ToDictionary(r => r.name, r => r);
+
+            int migratedCount = 0;
+
+            foreach (var sourceSMR in sourceRenderers)
+            {
+                if (targetDict.TryGetValue(sourceSMR.name, out var targetSMR))
+                {
+                    var sourceMesh = sourceSMR.sharedMesh;
+                    var targetMesh = targetSMR.sharedMesh;
+
+                    if (sourceMesh == null || targetMesh == null) continue;
+
+                    int shapeCount = sourceMesh.blendShapeCount;
+                    bool anyChanged = false;
+
+                    for (int i = 0; i < shapeCount; i++)
+                    {
+                        string shapeName = sourceMesh.GetBlendShapeName(i);
+                        float weight = sourceSMR.GetBlendShapeWeight(i);
+
+                        // Find index in target
+                        int targetIndex = targetMesh.GetBlendShapeIndex(shapeName);
+                        if (targetIndex != -1)
+                        {
+                            targetSMR.SetBlendShapeWeight(targetIndex, weight);
+                            anyChanged = true;
+                        }
+                    }
+
+                    if (anyChanged)
+                    {
+                        migratedCount++;
+                    }
+                }
+            }
+
+            Log($"BlendShape migration completed. Updated {migratedCount} SkinnedMeshRenderers.");
+        }
+
+        private void ResetBlendShapes()
+        {
+            var selected = Selection.activeGameObject;
+            if (selected == null)
+            {
+                Log("Please select a GameObject to reset BlendShapes.");
+                return;
+            }
+
+            var renderers = selected.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            int resetCount = 0;
+
+            foreach (var smr in renderers)
+            {
+                if (smr.sharedMesh == null) continue;
+                
+                int count = smr.sharedMesh.blendShapeCount;
+                if (count > 0)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        smr.SetBlendShapeWeight(i, 0f);
+                    }
+                    resetCount++;
+                }
+            }
+
+            Log($"Reset BlendShapes for {resetCount} renderers in '{selected.name}'.");
         }
     }
 }
