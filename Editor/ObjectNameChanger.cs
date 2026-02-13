@@ -11,6 +11,8 @@ public class ObjectNameModifier : EditorWindow
     // [수정] Unity 2019 호환성을 위해 명시적 타입 선언으로 변경
     private Dictionary<string, List<Transform>> duplicateGroups = new Dictionary<string, List<Transform>>();
     private Vector2 scroll;
+    private Vector2 scaleScroll;
+    private List<Transform> invalidScaleBones = new List<Transform>();
 
     [MenuItem("Tools/Object Name Modifier")]
     public static void ShowWindow()
@@ -92,6 +94,42 @@ public class ObjectNameModifier : EditorWindow
         else if (rootObject != null)
         {
             EditorGUILayout.HelpBox("No duplicate names found.", MessageType.Info);
+        }
+
+        GUILayout.Space(20);
+        EditorGUILayout.LabelField("", GUI.skin.horizontalSlider);
+
+        GUILayout.Label("Humanoid Bone Scale Checker", EditorStyles.boldLabel);
+
+        if (GUILayout.Button("Check Bone Scales"))
+        {
+            CheckHumanoidScale();
+        }
+
+        if (invalidScaleBones.Count > 0)
+        {
+            GUILayout.Space(10);
+            GUILayout.Label($"Found {invalidScaleBones.Count} bones with non-1 scale:", EditorStyles.boldLabel);
+            scaleScroll = EditorGUILayout.BeginScrollView(scaleScroll, GUILayout.Height(150));
+            foreach (var bone in invalidScaleBones)
+            {
+                if (bone == null) continue;
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.ObjectField(bone, typeof(Transform), true);
+                if (GUILayout.Button("Select", GUILayout.Width(60)))
+                {
+                    Selection.activeGameObject = bone.gameObject;
+                    EditorGUIUtility.PingObject(bone.gameObject);
+                }
+                EditorGUILayout.LabelField(bone.localScale.ToString(), GUILayout.Width(150));
+                EditorGUILayout.EndHorizontal();
+            }
+            EditorGUILayout.EndScrollView();
+        }
+        else if (System.Math.Abs(EditorGUILayout.GetControlRect().y - 0) > 0.1f && invalidScaleBones.Count == 0 && GUI.changed) 
+        {
+             // Optional: visual feedback when empty, but might be tricky with OnGUI redraws. 
+             // Keeping it simple for now.
         }
     }
 
@@ -195,5 +233,46 @@ public class ObjectNameModifier : EditorWindow
         }
 
         Debug.Log($"{parent.name}의 하위 오브젝트들이 이름순으로 정렬되었습니다.");
+    }
+
+    void CheckHumanoidScale()
+    {
+        invalidScaleBones.Clear();
+        GameObject activeObj = Selection.activeGameObject;
+        if (activeObj == null)
+        {
+            Debug.LogWarning("No object selected.");
+            EditorUtility.DisplayDialog("Error", "Please select a GameObject first.", "OK");
+            return;
+        }
+
+        Animator animator = activeObj.GetComponent<Animator>();
+        if (animator == null || !animator.isHuman)
+        {
+            Debug.LogWarning("Selected object is not a Humanoid (or has no Animator).");
+            EditorUtility.DisplayDialog("Error", "Selected object must have an Animator and be Humanoid.", "OK");
+            return;
+        }
+
+        foreach (HumanBodyBones boneId in System.Enum.GetValues(typeof(HumanBodyBones)))
+        {
+            if (boneId == HumanBodyBones.LastBone) continue;
+
+            Transform boneTransform = animator.GetBoneTransform(boneId);
+            if (boneTransform != null)
+            {
+                // Simple epsilon check
+                if (Vector3.Distance(boneTransform.localScale, Vector3.one) > 0.0001f)
+                {
+                    invalidScaleBones.Add(boneTransform);
+                }
+            }
+        }
+
+        if (invalidScaleBones.Count == 0)
+        {
+            Debug.Log("All humanoid bones have scale (1,1,1).");
+            EditorUtility.DisplayDialog("Result", "All humanoid bones have valid scale (1,1,1).", "OK");
+        }
     }
 }
