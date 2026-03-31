@@ -5,6 +5,8 @@ using System.Collections.Generic;
 public class FindUnusedBones : EditorWindow
 {
     private List<string> excludeStrings = new List<string>(); // 제외할 문자열 리스트
+    private bool excludeMagicaColliders = true;
+    private bool excludeVRMSpringBones = true;
 
     [MenuItem("Tools/Find Unused Bones")]
     public static void ShowWindow()
@@ -41,6 +43,11 @@ public class FindUnusedBones : EditorWindow
         {
             excludeStrings.Add(string.Empty); // 빈 문자열 입력 필드 추가
         }
+
+        GUILayout.Space(10);
+
+        excludeMagicaColliders = EditorGUILayout.Toggle("Exclude Magica Colliders", excludeMagicaColliders);
+        excludeVRMSpringBones = EditorGUILayout.Toggle("Exclude VRM Spring Bones", excludeVRMSpringBones);
 
         GUILayout.Space(20);
 
@@ -92,6 +99,30 @@ public class FindUnusedBones : EditorWindow
                 {
                     excludeBone = true;
                     break;
+                }
+            }
+
+            if (!excludeBone && (excludeMagicaColliders || excludeVRMSpringBones))
+            {
+                Component[] components = bone.GetComponents<Component>();
+                foreach (var component in components)
+                {
+                    if (component == null) continue;
+                    string typeName = component.GetType().Name;
+                    
+                    if (excludeMagicaColliders && 
+                        (typeName == "MagicaCapsuleCollider" || typeName == "MagicaSphereCollider" || typeName == "MagicaPlaneCollider"))
+                    {
+                        excludeBone = true;
+                        break;
+                    }
+
+                    if (excludeVRMSpringBones && 
+                        (typeName == "VRMSpringBone" || typeName == "VRMSpringBoneColliderGroup"))
+                    {
+                        excludeBone = true;
+                        break;
+                    }
                 }
             }
 
