@@ -797,8 +797,12 @@ public class MaterialAndTextureTool : EditorWindow
                 continue;
             }
 
-            // PNG 인코딩
-            byte[] pngBytes = tex.EncodeToPNG();
+            // GPU blit으로 압축 포맷 → 비압축 RGBA32 변환 후 인코딩
+            // (플랫폼별 override가 남아있어 텍스처가 여전히 압축돼 있어도 GPU에서 읽기 가능)
+            var psdImporter = AssetImporter.GetAtPath(psdRelPath) as TextureImporter;
+            bool isLinearPsd = psdImporter != null && !psdImporter.sRGBTexture;
+            var readableTex = ResizeTexture(tex, tex.width, tex.height, isLinearPsd);
+            byte[] pngBytes = readableTex.EncodeToPNG();
             if (pngBytes == null || pngBytes.Length == 0)
             {
                 Debug.LogWarning($"[PSD→PNG] PNG 인코딩 실패: {psdRelPath}");
@@ -858,10 +862,32 @@ public class MaterialAndTextureTool : EditorWindow
                 changed = true;
             }
 
-            // EncodeToPNG()는 압축 포맷(DXT, BC7 등)을 지원하지 않으므로 Uncompressed로 강제
+            // 기본 압축 설정 해제
             if (importer.textureCompression != TextureImporterCompression.Uncompressed)
             {
                 importer.textureCompression = TextureImporterCompression.Uncompressed;
+                changed = true;
+            }
+
+            // 플랫폼별 압축 오버라이드가 있으면 해제
+            // (플랫폼 override는 textureCompression보다 우선 적용되어 DXT 등이 남아있을 수 있음)
+            string[] platforms = { "Standalone", "Android", "iPhone", "WebGL" };
+            foreach (var platform in platforms)
+            {
+                var ps = importer.GetPlatformTextureSettings(platform);
+                if (ps.overridden)
+                {
+                    ps.overridden = false;
+                    importer.SetPlatformTextureSettings(ps);
+                    changed = true;
+                }
+            }
+
+            // 원본 해상도 전체로 로드될 수 있도록 maxTextureSize 보장
+            int maxSrcDim = Mathf.Max(entry.srcWidth, entry.srcHeight);
+            if (!psdResizeOver2048 && importer.maxTextureSize < maxSrcDim)
+            {
+                importer.maxTextureSize = 8192;
                 changed = true;
             }
 
