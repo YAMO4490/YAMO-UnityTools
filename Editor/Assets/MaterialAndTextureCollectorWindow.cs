@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 
-public class MaterialAndTextureTool : EditorWindow
+namespace YAMO.UnityTools.Editor
+{
+public class MaterialAndTextureCollectorWindow : EditorWindow
 {
     // =====================================================
     // 섹션 1: 머테리얼 / 텍스처 관리
@@ -89,17 +91,17 @@ public class MaterialAndTextureTool : EditorWindow
     private bool sec3Foldout = true;
 
     // 수정됨: "&" -> "And"로 원복하여 기존 경로와 일치시킴
-    [MenuItem("Tools/Material And Texture Tool")]
+    [MenuItem("Tools/YAMO/Assets/Material And Texture Tool")]
     public static void ShowWindow()
     {
         // 토글 기능: 이미 열려있으면 닫고, 없으면 엽니다.
-        if (HasOpenInstances<MaterialAndTextureTool>())
+        if (HasOpenInstances<MaterialAndTextureCollectorWindow>())
         {
-            GetWindow<MaterialAndTextureTool>().Close();
+            GetWindow<MaterialAndTextureCollectorWindow>().Close();
         }
         else
         {
-            var window = GetWindow<MaterialAndTextureTool>("MatTex Tool");
+            var window = GetWindow<MaterialAndTextureCollectorWindow>("MatTex Tool");
             window.minSize = new Vector2(600, 300);
         }
     }
@@ -1285,4 +1287,5 @@ public class MaterialAndTextureTool : EditorWindow
         style.normal.textColor = new Color(0.4f, 0.7f, 1f); // 하늘색
         return style;
     }
+}
 }
