@@ -303,6 +303,17 @@ namespace YAMO.UnityTools.Editor
         // Optimize pipeline
         // ---------------------------------------------------------------------
 
+        /// <summary>OptimizeOne 의 결과를 임시 보관해 StopAssetEditing 이후 크기 비교에 사용.</summary>
+        private struct OptimizeResult
+        {
+            public string clipName;
+            public string animPath;
+            public string origPath;
+            public int origCurveCount, newCurveCount;
+            public int origKeyCount, newKeyCount;
+            public int removedConstant, removedZero;
+        }
+
         private void OptimizeAll()
         {
             logLines.Clear();
@@ -323,6 +334,7 @@ namespace YAMO.UnityTools.Editor
             Log($"출력 폴더: {folderPath}");
 
             int ok = 0, fail = 0;
+            var results = new List<OptimizeResult>();
             try
             {
                 AssetDatabase.StartAssetEditing();
@@ -331,7 +343,12 @@ namespace YAMO.UnityTools.Editor
                     var clip = clips[i];
                     if (clip == null) continue;
                     EditorUtility.DisplayProgressBar("Facial Anim Optimize", clip.name, (float)i / Mathf.Max(1, clips.Count));
-                    if (OptimizeOne(clip, folderPath)) ok++; else fail++;
+                    if (OptimizeOne(clip, folderPath, out var result))
+                    {
+                        results.Add(result);
+                        ok++;
+                    }
+                    else fail++;
                 }
             }
             finally
@@ -341,11 +358,31 @@ namespace YAMO.UnityTools.Editor
                 AssetDatabase.Refresh();
             }
 
+            // StopAssetEditing + Refresh 이후 파일이 디스크에 플러시되었으므로 크기 비교 가능
+            foreach (var r in results)
+            {
+                long origSize = GetFileSize(r.origPath);
+                long newSize = GetFileSize(r.animPath);
+                float ratio = origSize > 0 ? (float)newSize / origSize * 100f : 0f;
+
+                Log($"✓ [{r.clipName}] 커브 {r.origCurveCount}→{r.newCurveCount} " +
+                    $"(상수 -{r.removedConstant}, 제로 -{r.removedZero}) / " +
+                    $"키 {r.origKeyCount}→{r.newKeyCount} / " +
+                    $"크기 {FormatBytes(origSize)}→{FormatBytes(newSize)} ({ratio:F1}%)");
+
+                if (pingAfterExport)
+                {
+                    var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(r.animPath);
+                    if (obj != null) EditorGUIUtility.PingObject(obj);
+                }
+            }
+
             Log($"완료 — 성공 {ok} / 실패 {fail}");
         }
 
-        private bool OptimizeOne(AnimationClip clip, string folderPath)
+        private bool OptimizeOne(AnimationClip clip, string folderPath, out OptimizeResult result)
         {
+            result = default;
             string fileName = SanitizeFileName(clip.name) + ".anim";
             string animPath = Path.Combine(folderPath, fileName).Replace('\\', '/');
             if (!overwriteExisting && File.Exists(animPath))
@@ -446,24 +483,19 @@ namespace YAMO.UnityTools.Editor
                 }
 
                 EditorUtility.SetDirty(optimized);
-                AssetDatabase.SaveAssets();
 
-                // 결과 통계 — 파일 크기
-                long origSize = GetFileSize(AssetDatabase.GetAssetPath(clip));
-                long newSize = GetFileSize(animPath);
-                float ratio = origSize > 0 ? (float)newSize / origSize * 100f : 0f;
-
-                Log($"✓ [{clip.name}] 커브 {origCurveCount}→{newCurveCount} " +
-                    $"(상수 -{removedConstant}, 제로 -{removedZero}) / " +
-                    $"키 {origKeyCount}→{newKeyCount} / " +
-                    $"크기 {FormatBytes(origSize)}→{FormatBytes(newSize)} ({ratio:F1}%)");
-
-                if (pingAfterExport)
+                result = new OptimizeResult
                 {
-                    var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(animPath);
-                    if (obj != null) EditorGUIUtility.PingObject(obj);
-                }
-
+                    clipName = clip.name,
+                    animPath = animPath,
+                    origPath = AssetDatabase.GetAssetPath(clip),
+                    origCurveCount = origCurveCount,
+                    newCurveCount = newCurveCount,
+                    origKeyCount = origKeyCount,
+                    newKeyCount = newKeyCount,
+                    removedConstant = removedConstant,
+                    removedZero = removedZero,
+                };
                 return true;
             }
             catch (Exception e)
