@@ -2,9 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using UnityEditor;
-using UnityEditor.Animations;
 using UnityEngine;
 
 namespace YAMO.UnityTools.Editor
@@ -13,19 +11,18 @@ namespace YAMO.UnityTools.Editor
     /// Facial Animation Baker
     ///
     /// .anim 페이셜 애니메이션(블렌드셰이프가 많아 용량이 큰 YAML 클립)을
-    /// .fbx 로 베이크해 용량을 줄이는 에디터 도구.
+    /// 커브 최적화를 통해 .anim 형식 그대로 용량을 줄이는 에디터 도구.
     ///
-    /// 설계 요점:
-    ///   - 페이셜 클립은 여러 캐릭터가 돌려 쓰므로 "원본 캐릭터"에 의존하지 않는다.
-    ///   - 대신 클립의 EditorCurveBinding 으로부터 최소 셸(Shell) 하이어라키를
-    ///     자동 구성한다: 필요한 transform 경로 + 컴포넌트 + 블렌드셰이프 이름.
-    ///   - 이 셸에 임시 AnimatorController(해당 클립)를 연결해 FBX Exporter 로
-    ///     내보내면, 결과 FBX 는 클립의 원래 path / propertyName 바인딩을
-    ///     그대로 유지한다. → 어떤 캐릭터에 적용해도 원본 anim 과 동일한 경로
-    ///     매칭이 성립 (계층구조 참조가 깨지지 않음).
-    ///   - 셸과 임시 자산은 try/finally 로 반드시 정리.
+    /// 최적화 기법:
+    ///   - RDP(Ramer-Douglas-Peucker) 기반 키프레임 감소: 오차 허용 범위 내에서
+    ///     불필요한 중간 키프레임을 제거.
+    ///   - 상수 커브 제거: 값이 변하지 않는 커브를 제거하거나 최소화.
+    ///   - 제로 커브 제거: 모든 값이 0인 커브를 완전히 제거.
+    ///   - 정밀도 축소: float 값의 소수점 자릿수를 줄여 YAML 텍스트 크기 감소.
     ///
-    /// 의존: Unity FBX Exporter (com.unity.formats.fbx) — 리플렉션으로 선택적 사용.
+    /// 페이셜 클립은 여러 캐릭터가 돌려 쓰므로 "원본 캐릭터"에 의존하지 않는다.
+    /// 바인딩(path / propertyName / 블렌드셰이프 이름)을 그대로 보존하므로,
+    /// 결과 .anim 은 기존과 동일하게 어떤 캐릭터에도 적용할 수 있다.
     /// </summary>
     public class FacialAnimationBaker : EditorWindow
     {
@@ -33,7 +30,12 @@ namespace YAMO.UnityTools.Editor
         private string outputFolderPath = DefaultOutputFolder;
         private bool overwriteExisting = true;
         private bool pingAfterExport = true;
-        private int keyframeStride = 3;   // 1 = 모든 키 유지, 3 = 3프레임당 1키
+
+        // 최적화 옵션
+        private float errorTolerance = 0.5f;        // RDP 오차 허용치 (블렌드셰이프 0~100 기준)
+        private bool removeConstantCurves = true;    // 값이 변하지 않는 커브 제거
+        private bool removeZeroCurves = true;        // 모든 값이 0인 커브 제거
+        private int precisionDigits = 4;             // float 소수점 자릿수
 
         private Vector2 clipScroll;
         private Vector2 logScroll;
@@ -51,12 +53,6 @@ namespace YAMO.UnityTools.Editor
 
         private const string DefaultOutputFolder = "Assets/Facial";
 
-        private const string FbxExporterAssemblyName = "Unity.Formats.Fbx.Editor";
-        private const string FbxExporterTypeName    = "UnityEditor.Formats.Fbx.Exporter.ModelExporter";
-        private const string TempWorkFolder         = "Assets/__YAMO_FacialBake_Temp";
-        private const string TempControllerPath     = "Assets/__YAMO_FacialBake_Temp/__ctrl.controller";
-        private const string ShellRootName          = "__YAMO_FacialBake_Shell";
-
         [MenuItem("Tools/YAMO/Animation/Facial Animation Baker")]
         public static void ShowWindow()
         {
@@ -70,12 +66,11 @@ namespace YAMO.UnityTools.Editor
 
         private void OnGUI()
         {
-            EditorGUILayout.LabelField("Facial Animation → FBX Baker", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Facial Animation Optimizer", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                ".anim 페이셜 클립을 FBX 로 베이크해 용량을 줄입니다.\n" +
-                "클립의 바인딩(path / propertyName / 블렌드셰이프 이름)을 그대로 보존하므로,\n" +
-                "결과 FBX 는 기존 .anim 과 동일하게 어떤 캐릭터에도 적용할 수 있습니다.\n" +
-                "원본 캐릭터는 필요하지 않습니다.",
+                ".anim 페이셜 클립의 커브를 최적화해 용량을 줄입니다.\n" +
+                "바인딩(path / propertyName / 블렌드셰이프 이름)을 그대로 보존하므로,\n" +
+                "결과 .anim 은 기존과 동일하게 어떤 캐릭터에도 적용할 수 있습니다.",
                 MessageType.Info);
 
             // 클립 리스트 + 각 클립의 path 선택
@@ -121,23 +116,53 @@ namespace YAMO.UnityTools.Editor
             overwriteExisting = EditorGUILayout.Toggle("Overwrite Existing", overwriteExisting);
             pingAfterExport   = EditorGUILayout.Toggle("Ping After Export",  pingAfterExport);
 
-            // 키프레임 데시메이션 — 페이셜 클립 용량의 결정적 요인
+            EditorGUILayout.Space(4);
+            EditorGUILayout.LabelField("Optimization", EditorStyles.boldLabel);
+
+            // 오차 허용치
             using (new EditorGUILayout.HorizontalScope())
             {
-                keyframeStride = EditorGUILayout.IntField(
-                    new GUIContent("Keyframe Stride",
-                        "N개 프레임마다 1개의 키만 남깁니다. 1=원본 유지, 3=1,4,7…번 프레임만 유지(2,3,5,6… 삭제)."),
-                    keyframeStride);
-                if (keyframeStride < 1) keyframeStride = 1;
-                GUILayout.Label(keyframeStride == 1 ? "(원본 유지)" : $"({Mathf.RoundToInt(100f / keyframeStride)}% 키 유지)",
+                errorTolerance = EditorGUILayout.FloatField(
+                    new GUIContent("Error Tolerance",
+                        "RDP 키프레임 감소의 오차 허용치.\n" +
+                        "블렌드셰이프(0~100)의 경우 0.5 = 0.5% 오차.\n" +
+                        "값이 클수록 더 많은 키가 제거되어 용량이 줄지만 품질이 낮아집니다."),
+                    errorTolerance);
+                if (errorTolerance < 0f) errorTolerance = 0f;
+                GUILayout.Label(errorTolerance == 0f ? "(키 감소 없음)" : $"(±{errorTolerance})",
+                    EditorStyles.miniLabel, GUILayout.Width(100));
+            }
+
+            removeConstantCurves = EditorGUILayout.Toggle(
+                new GUIContent("Remove Constant Curves",
+                    "값이 변하지 않는 커브를 제거합니다.\n" +
+                    "예: 특정 블렌드셰이프가 항상 0이면 해당 커브를 삭제."),
+                removeConstantCurves);
+
+            removeZeroCurves = EditorGUILayout.Toggle(
+                new GUIContent("Remove Zero Curves",
+                    "모든 키프레임 값이 0인 커브를 제거합니다."),
+                removeZeroCurves);
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                precisionDigits = EditorGUILayout.IntField(
+                    new GUIContent("Precision Digits",
+                        "float 값의 소수점 자릿수.\n" +
+                        "4 = 0.1234 (권장), 3 = 0.123 (더 공격적).\n" +
+                        "0 = 정밀도 축소 없음."),
+                    precisionDigits);
+                if (precisionDigits < 0) precisionDigits = 0;
+                if (precisionDigits > 10) precisionDigits = 10;
+                GUILayout.Label(precisionDigits == 0 ? "(축소 없음)" : $"(소수점 {precisionDigits}자리)",
                     EditorStyles.miniLabel, GUILayout.Width(110));
             }
 
             EditorGUILayout.Space(6);
             using (new EditorGUI.DisabledScope(!HasAnyClip()))
             {
-                if (GUILayout.Button("Bake to FBX", GUILayout.Height(28)))
-                    BakeAll();
+                if (GUILayout.Button("Optimize", GUILayout.Height(28)))
+                    OptimizeAll();
             }
 
             EditorGUILayout.Space(6);
@@ -275,26 +300,12 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ---------------------------------------------------------------------
-        // Bake pipeline
+        // Optimize pipeline
         // ---------------------------------------------------------------------
 
-        private void BakeAll()
+        private void OptimizeAll()
         {
             logLines.Clear();
-
-            var invoker = FbxExportInvoker.Resolve();
-            if (invoker == null)
-            {
-                EditorUtility.DisplayDialog(
-                    "FBX Exporter 필요",
-                    "Unity FBX Exporter 패키지(com.unity.formats.fbx)가 설치되지 않았습니다.\n\n" +
-                    "Window > Package Manager > + > Add package by name...\n에서 com.unity.formats.fbx 를 설치해 주세요.",
-                    "OK");
-                Log("✗ FBX Exporter 미설치 또는 호환되지 않는 버전");
-                return;
-            }
-            Log($"FBX Exporter: {invoker.Describe()}");
-            Debug.Log("[FacialAnimBaker] " + invoker.DumpOptionsMembers());
 
             string folderPath = (outputFolderPath ?? "").Replace('\\', '/').TrimEnd('/');
             if (string.IsNullOrEmpty(folderPath)) folderPath = DefaultOutputFolder;
@@ -319,43 +330,33 @@ namespace YAMO.UnityTools.Editor
                 {
                     var clip = clips[i];
                     if (clip == null) continue;
-                    EditorUtility.DisplayProgressBar("Facial Anim Bake", clip.name, (float)i / Mathf.Max(1, clips.Count));
-                    if (BakeOne(clip, folderPath, invoker)) ok++; else fail++;
+                    EditorUtility.DisplayProgressBar("Facial Anim Optimize", clip.name, (float)i / Mathf.Max(1, clips.Count));
+                    if (OptimizeOne(clip, folderPath)) ok++; else fail++;
                 }
             }
             finally
             {
                 AssetDatabase.StopAssetEditing();
                 EditorUtility.ClearProgressBar();
-                // 남아 있을 수 있는 임시 작업 폴더 제거
-                if (AssetDatabase.IsValidFolder(TempWorkFolder))
-                    AssetDatabase.DeleteAsset(TempWorkFolder);
                 AssetDatabase.Refresh();
             }
 
             Log($"완료 — 성공 {ok} / 실패 {fail}");
         }
 
-        private bool BakeOne(AnimationClip clip, string folderPath, FbxExportInvoker invoker)
+        private bool OptimizeOne(AnimationClip clip, string folderPath)
         {
-            string fileName = SanitizeFileName(clip.name) + ".fbx";
-            string fbxPath  = Path.Combine(folderPath, fileName).Replace('\\', '/');
-            if (!overwriteExisting && File.Exists(fbxPath))
+            string fileName = SanitizeFileName(clip.name) + ".anim";
+            string animPath = Path.Combine(folderPath, fileName).Replace('\\', '/');
+            if (!overwriteExisting && File.Exists(animPath))
             {
-                Log($"- 건너뜀(이미 존재): {fbxPath}");
+                Log($"- 건너뜀(이미 존재): {animPath}");
                 return false;
             }
 
-            GameObject shell = null;
-            AnimatorController tempController = null;
-            AnimationClip filteredClip = null;
-            string filteredClipPath = null;
-            var createdMeshes = new List<Mesh>();
-            bool success = false;
-
             try
             {
-                // 0) 선택된 path 만 남긴 필터 클립 생성
+                // 선택된 path 목록
                 var sel = GetOrScanSelection(clip);
                 var allowed = new HashSet<string>(
                     sel.include.Where(kv => kv.Value).Select(kv => kv.Key),
@@ -365,504 +366,304 @@ namespace YAMO.UnityTools.Editor
                     Log($"✗ [{clip.name}] 선택된 오브젝트가 없어 건너뜀");
                     return false;
                 }
-                // 임시 anim 에셋의 파일명 = 원본 클립명 으로 맞춰야 FBX 안의
-                // AnimationClip take 이름이 원본명으로 찍힌다.
-                // Assets/ 루트를 어지럽히지 않도록 전용 서브폴더에 담는다.
-                EnsureFolderRecursive(TempWorkFolder);
-                filteredClipPath = $"{TempWorkFolder}/{SanitizeFileName(clip.name)}.anim";
-                filteredClip = BuildFilteredClip(clip, allowed, filteredClipPath, Mathf.Max(1, keyframeStride));
-                int dropped = (AnimationUtility.GetCurveBindings(clip).Length + AnimationUtility.GetObjectReferenceCurveBindings(clip).Length)
-                            - (AnimationUtility.GetCurveBindings(filteredClip).Length + AnimationUtility.GetObjectReferenceCurveBindings(filteredClip).Length);
-                Log($"[{clip.name}] 선택 오브젝트 {allowed.Count} 개 / 제외된 커브 {dropped} 개");
 
-                // 1) 필터 클립의 바인딩으로부터 셸 구성
-                shell = BuildShell(filteredClip, createdMeshes);
-                Log($"[{clip.name}] 셸 구성: transforms={CountTransforms(shell)}, meshes={createdMeshes.Count}");
+                // 원본 통계
+                var origBindings = AnimationUtility.GetCurveBindings(clip);
+                var origObjBindings = AnimationUtility.GetObjectReferenceCurveBindings(clip);
+                int origCurveCount = origBindings.Length + origObjBindings.Length;
+                int origKeyCount = 0;
+                foreach (var b in origBindings)
+                {
+                    var c = AnimationUtility.GetEditorCurve(clip, b);
+                    if (c != null) origKeyCount += c.keys.Length;
+                }
 
-                // 2) 임시 컨트롤러 + Animator 연결
-                if (File.Exists(TempControllerPath)) AssetDatabase.DeleteAsset(TempControllerPath);
-                tempController = AnimatorController.CreateAnimatorControllerAtPathWithClip(TempControllerPath, filteredClip);
-                var animator = shell.GetComponent<Animator>();
-                if (animator == null) animator = shell.AddComponent<Animator>();
-                animator.runtimeAnimatorController = tempController;
-                animator.applyRootMotion = false;
-                animator.enabled = true;
+                // 최적화된 클립 생성
+                var optimized = new AnimationClip();
+                optimized.name = clip.name;
+                optimized.frameRate = clip.frameRate;
+                optimized.wrapMode = clip.wrapMode;
+                optimized.legacy = clip.legacy;
+                optimized.localBounds = clip.localBounds;
+                AnimationUtility.SetAnimationClipSettings(optimized, AnimationUtility.GetAnimationClipSettings(clip));
 
-                // 3) FBX 내보내기 (애니메이션 포함 옵션 지정)
-                Log($"[{clip.name}] 내보내기 → {fbxPath}");
-                invoker.Export(fbxPath, shell, shell.transform);
+                // 기존 에셋이 있으면 삭제
+                if (File.Exists(animPath)) AssetDatabase.DeleteAsset(animPath);
+                AssetDatabase.CreateAsset(optimized, animPath);
 
-                if (!File.Exists(fbxPath))
-                    throw new Exception("FBX 파일이 생성되지 않았습니다.");
+                int newCurveCount = 0;
+                int newKeyCount = 0;
+                int removedConstant = 0;
+                int removedZero = 0;
 
-                success = true;
+                // float 커브 최적화
+                foreach (var b in origBindings)
+                {
+                    if (!allowed.Contains(b.path ?? "")) continue;
+                    var curve = AnimationUtility.GetEditorCurve(clip, b);
+                    if (curve == null) continue;
+
+                    // 제로 커브 제거
+                    if (removeZeroCurves && IsZeroCurve(curve, errorTolerance))
+                    {
+                        removedZero++;
+                        continue;
+                    }
+
+                    // 상수 커브 제거
+                    if (removeConstantCurves && IsConstantCurve(curve, errorTolerance))
+                    {
+                        removedConstant++;
+                        continue;
+                    }
+
+                    // RDP 키프레임 감소
+                    if (errorTolerance > 0f)
+                        curve = ReduceCurveRDP(curve, errorTolerance);
+
+                    // 모든 키프레임을 Linear 보간으로 설정
+                    curve = LinearizeCurve(curve);
+
+                    // 정밀도 축소
+                    if (precisionDigits > 0)
+                        curve = ReduceCurvePrecision(curve, precisionDigits);
+
+                    AnimationUtility.SetEditorCurve(optimized, b, curve);
+                    newCurveCount++;
+                    newKeyCount += curve.keys.Length;
+                }
+
+                // ObjectReference 커브 복사 (최적화 대상 아님)
+                foreach (var b in origObjBindings)
+                {
+                    if (!allowed.Contains(b.path ?? "")) continue;
+                    var keys = AnimationUtility.GetObjectReferenceCurve(clip, b);
+                    if (keys != null)
+                    {
+                        AnimationUtility.SetObjectReferenceCurve(optimized, b, keys);
+                        newCurveCount++;
+                    }
+                }
+
+                EditorUtility.SetDirty(optimized);
+                AssetDatabase.SaveAssets();
+
+                // 결과 통계 — 파일 크기
+                long origSize = GetFileSize(AssetDatabase.GetAssetPath(clip));
+                long newSize = GetFileSize(animPath);
+                float ratio = origSize > 0 ? (float)newSize / origSize * 100f : 0f;
+
+                Log($"✓ [{clip.name}] 커브 {origCurveCount}→{newCurveCount} " +
+                    $"(상수 -{removedConstant}, 제로 -{removedZero}) / " +
+                    $"키 {origKeyCount}→{newKeyCount} / " +
+                    $"크기 {FormatBytes(origSize)}→{FormatBytes(newSize)} ({ratio:F1}%)");
+
+                if (pingAfterExport)
+                {
+                    var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(animPath);
+                    if (obj != null) EditorGUIUtility.PingObject(obj);
+                }
+
+                return true;
             }
             catch (Exception e)
             {
                 Log($"✗ [{clip.name}] 실패: {e.GetBaseException().Message}");
                 Debug.LogException(e);
+                return false;
             }
-            finally
-            {
-                // 4) 정리 — 항상 실행
-                if (shell != null) DestroyImmediate(shell);
-                if (File.Exists(TempControllerPath)) AssetDatabase.DeleteAsset(TempControllerPath);
-                if (!string.IsNullOrEmpty(filteredClipPath) && File.Exists(filteredClipPath))
-                    AssetDatabase.DeleteAsset(filteredClipPath);
-                foreach (var m in createdMeshes)
-                    if (m != null) DestroyImmediate(m);
-            }
-
-            if (success)
-            {
-                AssetDatabase.ImportAsset(fbxPath, ImportAssetOptions.ForceSynchronousImport);
-                var importer = AssetImporter.GetAtPath(fbxPath) as ModelImporter;
-                if (importer != null)
-                {
-                    importer.importAnimation = true;
-                    importer.animationType = ModelImporterAnimationType.Generic;
-                    // Anim. Compression = Off — 키프레임 정밀도 유지
-                    importer.animationCompression = ModelImporterAnimationCompression.Off;
-
-                    // 클립 이름을 FBX 파일명(= 원본 클립명)과 동일하게 고정
-                    var targetClipName = Path.GetFileNameWithoutExtension(fbxPath);
-                    var defaults = importer.defaultClipAnimations;
-                    if (defaults != null && defaults.Length > 0)
-                    {
-                        for (int k = 0; k < defaults.Length; k++)
-                            defaults[k].name = defaults.Length == 1
-                                ? targetClipName
-                                : $"{targetClipName}_{k}";
-                        importer.clipAnimations = defaults;
-                    }
-
-                    importer.SaveAndReimport();
-                }
-                Log($"✓ [{clip.name}] 완료: {fbxPath}");
-                if (pingAfterExport)
-                {
-                    var obj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(fbxPath);
-                    if (obj != null) EditorGUIUtility.PingObject(obj);
-                }
-            }
-            return success;
         }
 
+        // ---------------------------------------------------------------------
+        // Curve optimization algorithms
+        // ---------------------------------------------------------------------
+
         /// <summary>
-        /// stride 간격으로 키를 솎아낸 새 AnimationCurve 를 반환.
-        /// 인덱스 0, stride, 2*stride, … 의 키를 유지하고, 마지막 키는 클립 길이 보존을 위해 항상 유지.
-        /// 키 사이 보간은 원본 in/out slope 를 그대로 승계 — 페이셜 곡선은 값이 완만해 청감·시감 차이가 미미함.
+        /// Ramer-Douglas-Peucker 알고리즘으로 오차 허용 범위 내에서 키프레임을 감소.
+        /// 각 키프레임의 time/value 를 2D 점으로 취급하고, 양 끝을 잇는 선분으로부터
+        /// 최대 오차를 초과하는 키만 유지.
         /// </summary>
-        private static AnimationCurve DecimateCurve(AnimationCurve src, int stride)
+        private static AnimationCurve ReduceCurveRDP(AnimationCurve src, float tolerance)
         {
             var keys = src.keys;
-            if (keys == null || keys.Length <= 2 || stride <= 1) return src;
+            if (keys.Length <= 2 || tolerance <= 0f) return src;
 
-            var kept = new List<Keyframe>(keys.Length / stride + 2);
+            var keep = new bool[keys.Length];
+            keep[0] = true;
+            keep[keys.Length - 1] = true;
+
+            RDPRecurse(keys, keep, 0, keys.Length - 1, tolerance);
+
+            var kept = new List<Keyframe>(keys.Length);
+            for (int i = 0; i < keys.Length; i++)
+                if (keep[i]) kept.Add(keys[i]);
+
+            var result = new AnimationCurve(kept.ToArray());
+            result.preWrapMode  = src.preWrapMode;
+            result.postWrapMode = src.postWrapMode;
+            return result;
+        }
+
+        private static void RDPRecurse(Keyframe[] keys, bool[] keep, int start, int end, float tolerance)
+        {
+            if (end - start <= 1) return;
+
+            float t0 = keys[start].time;
+            float t1 = keys[end].time;
+            float v0 = keys[start].value;
+            float v1 = keys[end].value;
+            float dt = t1 - t0;
+
+            float maxError = 0f;
+            int maxIdx = -1;
+
+            for (int i = start + 1; i < end; i++)
+            {
+                // 선형 보간으로 예상되는 값과 실제 값의 차이
+                float t = dt > 0f ? (keys[i].time - t0) / dt : 0f;
+                float interpolated = v0 + (v1 - v0) * t;
+                float error = Mathf.Abs(keys[i].value - interpolated);
+                if (error > maxError)
+                {
+                    maxError = error;
+                    maxIdx = i;
+                }
+            }
+
+            if (maxError > tolerance && maxIdx >= 0)
+            {
+                keep[maxIdx] = true;
+                RDPRecurse(keys, keep, start, maxIdx, tolerance);
+                RDPRecurse(keys, keep, maxIdx, end, tolerance);
+            }
+        }
+
+        /// <summary>
+        /// 모든 키프레임의 탄젠트를 Linear 로 재계산.
+        /// Bezier/Hermite 탄젠트가 남아 있으면 키프레임 제거 후 오버슈트가 발생하므로,
+        /// 인접 키 사이의 기울기를 직접 계산해 설정한다.
+        /// </summary>
+        private static AnimationCurve LinearizeCurve(AnimationCurve src)
+        {
+            var keys = src.keys;
+            if (keys.Length == 0) return src;
+
             for (int i = 0; i < keys.Length; i++)
             {
-                if (i % stride == 0) kept.Add(keys[i]);
-            }
-            // 마지막 키 보장 (클립 길이 유지)
-            if (kept.Count == 0 || kept[kept.Count - 1].time < keys[keys.Length - 1].time)
-                kept.Add(keys[keys.Length - 1]);
+                float inTangent = 0f;
+                float outTangent = 0f;
 
-            var outCurve = new AnimationCurve(kept.ToArray());
-            outCurve.preWrapMode  = src.preWrapMode;
-            outCurve.postWrapMode = src.postWrapMode;
-            return outCurve;
+                if (i > 0)
+                {
+                    float dt = keys[i].time - keys[i - 1].time;
+                    inTangent = dt > 0f ? (keys[i].value - keys[i - 1].value) / dt : 0f;
+                }
+
+                if (i < keys.Length - 1)
+                {
+                    float dt = keys[i + 1].time - keys[i].time;
+                    outTangent = dt > 0f ? (keys[i + 1].value - keys[i].value) / dt : 0f;
+                }
+
+                keys[i].inTangent = inTangent;
+                keys[i].outTangent = outTangent;
+                keys[i].inWeight = 0f;
+                keys[i].outWeight = 0f;
+            }
+
+            var result = new AnimationCurve(keys);
+            result.preWrapMode  = src.preWrapMode;
+            result.postWrapMode = src.postWrapMode;
+
+            // 탄젠트 모드를 Linear 로 명시 설정
+            for (int i = 0; i < result.keys.Length; i++)
+            {
+                AnimationUtility.SetKeyLeftTangentMode(result, i, AnimationUtility.TangentMode.Linear);
+                AnimationUtility.SetKeyRightTangentMode(result, i, AnimationUtility.TangentMode.Linear);
+            }
+
+            return result;
         }
 
         /// <summary>
-        /// 선택된 path 의 커브만 복사한 임시 AnimationClip 자산을 생성.
-        /// 이렇게 하면 BuildShell 과 FBX Exporter 양쪽에서 바인딩이 일관되게 줄어들어
-        /// 경고 없이 깔끔히 베이크된다. 루프 노드 속성(m_SampleRate, wrap mode 등) 도 승계.
+        /// 커브의 모든 키프레임 값이 동일한지 확인 (허용 오차 이내).
         /// </summary>
-        private static AnimationClip BuildFilteredClip(AnimationClip source, HashSet<string> allowedPaths, string assetPath, int stride)
+        private static bool IsConstantCurve(AnimationCurve curve, float tolerance)
         {
-            var copy = new AnimationClip();
-            copy.name = source.name;
-            copy.frameRate = source.frameRate;
-            copy.wrapMode = source.wrapMode;
-            copy.legacy = source.legacy;
-            copy.localBounds = source.localBounds;
-            AnimationUtility.SetAnimationClipSettings(copy, AnimationUtility.GetAnimationClipSettings(source));
-
-            if (File.Exists(assetPath)) AssetDatabase.DeleteAsset(assetPath);
-            AssetDatabase.CreateAsset(copy, assetPath);
-
-            foreach (var b in AnimationUtility.GetCurveBindings(source))
-            {
-                if (!allowedPaths.Contains(b.path ?? "")) continue;
-                var curve = AnimationUtility.GetEditorCurve(source, b);
-                if (curve == null) continue;
-                if (stride > 1) curve = DecimateCurve(curve, stride);
-                AnimationUtility.SetEditorCurve(copy, b, curve);
-            }
-            foreach (var b in AnimationUtility.GetObjectReferenceCurveBindings(source))
-            {
-                if (!allowedPaths.Contains(b.path ?? "")) continue;
-                var keys = AnimationUtility.GetObjectReferenceCurve(source, b);
-                if (keys != null) AnimationUtility.SetObjectReferenceCurve(copy, b, keys);
-            }
-
-            EditorUtility.SetDirty(copy);
-            AssetDatabase.SaveAssets();
-            return copy;
-        }
-
-        // ---------------------------------------------------------------------
-        // Shell construction — 클립의 바인딩만을 근거로 최소 하이어라키 생성
-        // ---------------------------------------------------------------------
-
-        private static GameObject BuildShell(AnimationClip clip, List<Mesh> outCreatedMeshes)
-        {
-            var root = new GameObject(ShellRootName);
-            root.hideFlags = HideFlags.DontSave;
-
-            var floatBindings = AnimationUtility.GetCurveBindings(clip);
-            var objBindings   = AnimationUtility.GetObjectReferenceCurveBindings(clip);
-            var all = floatBindings.Concat(objBindings).ToArray();
-
-            // path -> (componentType -> needed blendshape names)
-            // blendshape 이름 수집은 SkinnedMeshRenderer 전용
-            var pathToComponents = new Dictionary<string, Dictionary<Type, HashSet<string>>>(StringComparer.Ordinal);
-
-            foreach (var b in all)
-            {
-                if (!pathToComponents.TryGetValue(b.path, out var compMap))
-                {
-                    compMap = new Dictionary<Type, HashSet<string>>();
-                    pathToComponents[b.path] = compMap;
-                }
-                if (b.type == null) continue; // 안전장치
-                if (!compMap.TryGetValue(b.type, out var shapes))
-                {
-                    shapes = new HashSet<string>(StringComparer.Ordinal);
-                    compMap[b.type] = shapes;
-                }
-                if (b.type == typeof(SkinnedMeshRenderer) && b.propertyName != null &&
-                    b.propertyName.StartsWith("blendShape.", StringComparison.Ordinal))
-                {
-                    shapes.Add(b.propertyName.Substring("blendShape.".Length));
-                }
-            }
-
-            // 루트 자체 바인딩(path="") 은 root 에 반영, 그 외 경로는 하위 생성
-            foreach (var kv in pathToComponents)
-            {
-                var path = kv.Key;
-                Transform t = string.IsNullOrEmpty(path) ? root.transform : EnsurePath(root.transform, path);
-
-                foreach (var compKv in kv.Value)
-                {
-                    var type = compKv.Key;
-                    if (type == typeof(Transform) || type == typeof(GameObject))
-                        continue; // Transform 은 경로 생성만으로 충족
-
-                    // 컴포넌트가 없으면 추가 시도
-                    if (t.GetComponent(type) != null) continue;
-                    Component comp = null;
-                    try { comp = t.gameObject.AddComponent(type); }
-                    catch (Exception)
-                    {
-                        // 추가 불가능 타입(추상/스크립트 없음 등) — transform 바인딩만 유지되어도
-                        // 대부분의 페이셜 클립은 SMR + Transform 조합이라 실무상 문제없음.
-                        continue;
-                    }
-
-                    // SkinnedMeshRenderer 는 blendshape 이름을 갖는 메쉬를 붙여야 blendShape.* 커브가 보존됨
-                    if (comp is SkinnedMeshRenderer smr)
-                    {
-                        var shapes = compKv.Value;
-                        var mesh = BuildDummyBlendShapeMesh(shapes);
-                        outCreatedMeshes.Add(mesh);
-                        smr.sharedMesh = mesh;
-                        smr.rootBone = t; // 참조 안정화
-                    }
-                }
-            }
-
-            return root;
+            var keys = curve.keys;
+            if (keys.Length <= 1) return true;
+            float first = keys[0].value;
+            for (int i = 1; i < keys.Length; i++)
+                if (Mathf.Abs(keys[i].value - first) > tolerance) return false;
+            return true;
         }
 
         /// <summary>
-        /// path ("A/B/C") 를 따라 Transform 계층을 보장 — 없는 노드는 생성.
+        /// 커브의 모든 키프레임 값이 0인지 확인 (허용 오차 이내).
         /// </summary>
-        private static Transform EnsurePath(Transform root, string path)
+        private static bool IsZeroCurve(AnimationCurve curve, float tolerance)
         {
-            var parts = path.Split('/');
-            var cur = root;
-            foreach (var p in parts)
-            {
-                if (string.IsNullOrEmpty(p)) continue;
-                var child = cur.Find(p);
-                if (child == null)
-                {
-                    var go = new GameObject(p);
-                    go.transform.SetParent(cur, false);
-                    child = go.transform;
-                }
-                cur = child;
-            }
-            return cur;
+            var keys = curve.keys;
+            for (int i = 0; i < keys.Length; i++)
+                if (Mathf.Abs(keys[i].value) > tolerance) return false;
+            return true;
         }
 
         /// <summary>
-        /// 주어진 이름들을 blendshape 로 갖는 최소 메쉬 생성(1-vertex + 이름별 zero-delta 프레임).
-        /// FBX Exporter 가 SMR.blendShape.* 커브를 이름 기반으로 내보낼 수 있게 해 준다.
+        /// 키프레임의 value, inTangent, outTangent, inWeight, outWeight 를
+        /// 지정된 소수점 자릿수로 반올림.
         /// </summary>
-        private static Mesh BuildDummyBlendShapeMesh(HashSet<string> shapeNames)
+        private static AnimationCurve ReduceCurvePrecision(AnimationCurve src, int digits)
         {
-            var mesh = new Mesh { name = "FacialBake_Dummy" };
-            mesh.hideFlags = HideFlags.DontSave;
-            mesh.vertices  = new[] { Vector3.zero };
-            mesh.normals   = new[] { Vector3.up };
-            mesh.triangles = new int[0];
-
-            var zeroV = new[] { Vector3.zero };
-            var zeroN = new[] { Vector3.zero };
-            var zeroT = new[] { Vector3.zero };
-
-            if (shapeNames != null)
+            var keys = src.keys;
+            bool changed = false;
+            for (int i = 0; i < keys.Length; i++)
             {
-                foreach (var name in shapeNames)
+                var k = keys[i];
+                var newValue     = (float)Math.Round(k.value, digits);
+                var newInTangent  = (float)Math.Round(k.inTangent, digits);
+                var newOutTangent = (float)Math.Round(k.outTangent, digits);
+                var newInWeight   = (float)Math.Round(k.inWeight, digits);
+                var newOutWeight  = (float)Math.Round(k.outWeight, digits);
+
+                if (newValue != k.value || newInTangent != k.inTangent ||
+                    newOutTangent != k.outTangent || newInWeight != k.inWeight ||
+                    newOutWeight != k.outWeight)
                 {
-                    if (string.IsNullOrEmpty(name)) continue;
-                    // 같은 이름의 블렌드셰이프는 중복 추가 불가 → try
-                    try { mesh.AddBlendShapeFrame(name, 100f, zeroV, zeroN, zeroT); }
-                    catch { /* 무시 */ }
+                    k.value      = newValue;
+                    k.inTangent  = newInTangent;
+                    k.outTangent = newOutTangent;
+                    k.inWeight   = newInWeight;
+                    k.outWeight  = newOutWeight;
+                    keys[i] = k;
+                    changed = true;
                 }
             }
-            mesh.UploadMeshData(false);
-            return mesh;
-        }
 
-        private static int CountTransforms(GameObject go)
-            => go.GetComponentsInChildren<Transform>(true).Length;
+            if (!changed) return src;
+
+            var result = new AnimationCurve(keys);
+            result.preWrapMode  = src.preWrapMode;
+            result.postWrapMode = src.postWrapMode;
+            return result;
+        }
 
         // ---------------------------------------------------------------------
         // Helpers
         // ---------------------------------------------------------------------
 
-        /// <summary>
-        /// Unity FBX Exporter 의 ExportObject 를 리플렉션으로 래핑.
-        /// 2-인자 오버로드는 모델만 내보내므로, IExportOptions 를 구성해 애니메이션 포함 옵션을 지정한다.
-        /// </summary>
-        private class FbxExportInvoker
+        private static long GetFileSize(string assetPath)
         {
-            private MethodInfo exportWithOptions; // (string, Object, IExportOptions)
-            private MethodInfo exportBasic;       // (string, Object)  — 최후 폴백
-            private Type optionsType;
-            // 이 버전의 ExportModelOptions 는 setter 메서드가 아닌 프로퍼티를 가짐
-            private PropertyInfo propInclude;            // ModelAnimIncludeOption
-            private PropertyInfo propAnimSource;         // AnimationSource
-            private PropertyInfo propAnimDest;           // AnimationDest
-            private PropertyInfo propAnimateSkinnedMesh; // AnimateSkinnedMesh — 블렌드셰이프 필수
-            private PropertyInfo propExportUnrendered;   // ExportUnrendered
-            private PropertyInfo propEmbedTextures;      // EmbedTextures
-            private PropertyInfo propExportFormat;       // ExportFormat (ASCII/Binary)
-            private object includeModelAndAnim;
-            private object exportFormatBinary;
+            if (string.IsNullOrEmpty(assetPath)) return 0;
+            var fullPath = Path.GetFullPath(assetPath);
+            return File.Exists(fullPath) ? new FileInfo(fullPath).Length : 0;
+        }
 
-            public static FbxExportInvoker Resolve()
-            {
-                Assembly asm = null;
-                foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
-                {
-                    if (a.GetName().Name == FbxExporterAssemblyName) { asm = a; break; }
-                }
-                if (asm == null) return null;
-
-                var exporterType = asm.GetType(FbxExporterTypeName);
-                if (exporterType == null) return null;
-
-                var inv = new FbxExportInvoker();
-
-                // 3-인자 오버로드 탐색 — 파라미터 타입은 묻지 않고 시그니처로만 매칭
-                foreach (var m in exporterType.GetMethods(BindingFlags.Public | BindingFlags.Static))
-                {
-                    if (m.Name != "ExportObject") continue;
-                    var ps = m.GetParameters();
-                    if (ps.Length == 3 &&
-                        ps[0].ParameterType == typeof(string) &&
-                        ps[1].ParameterType == typeof(UnityEngine.Object))
-                    {
-                        inv.exportWithOptions = m;
-                        // 실제 요구되는 옵션 타입을 메서드에서 직접 취함
-                        inv.optionsType = ps[2].ParameterType;
-                        break;
-                    }
-                }
-
-                // 2-인자 기본 오버로드
-                inv.exportBasic = exporterType.GetMethod(
-                    "ExportObject",
-                    BindingFlags.Public | BindingFlags.Static,
-                    null,
-                    new[] { typeof(string), typeof(UnityEngine.Object) },
-                    null);
-
-                if (inv.exportWithOptions == null && inv.exportBasic == null)
-                    return null;
-
-                // 옵션 인스턴스 생성 타입 결정:
-                //   - optionsType 이 추상/인터페이스면 해당 어셈블리에서 구체 구현을 찾음
-                Type concreteOptionsType = inv.optionsType;
-                if (concreteOptionsType != null && (concreteOptionsType.IsAbstract || concreteOptionsType.IsInterface))
-                {
-                    concreteOptionsType = FindConcreteImplementation(asm, inv.optionsType);
-                }
-
-                if (concreteOptionsType != null)
-                {
-                    inv.optionsType              = concreteOptionsType;
-                    inv.propInclude              = FindProp(concreteOptionsType, "ModelAnimIncludeOption");
-                    inv.propAnimSource           = FindProp(concreteOptionsType, "AnimationSource");
-                    inv.propAnimDest             = FindProp(concreteOptionsType, "AnimationDest");
-                    inv.propAnimateSkinnedMesh   = FindProp(concreteOptionsType, "AnimateSkinnedMesh");
-                    inv.propExportUnrendered     = FindProp(concreteOptionsType, "ExportUnrendered");
-                    inv.propEmbedTextures        = FindProp(concreteOptionsType, "EmbedTextures");
-                    inv.propExportFormat         = FindProp(concreteOptionsType, "ExportFormat");
-
-                    // ExportFormat 열거형에서 Binary 값 추출
-                    if (inv.propExportFormat != null && inv.propExportFormat.PropertyType.IsEnum)
-                    {
-                        try { inv.exportFormatBinary = Enum.Parse(inv.propExportFormat.PropertyType, "Binary"); }
-                        catch { inv.exportFormatBinary = null; }
-                    }
-
-                    // Include 열거형 — 프로퍼티 타입에서 직접 추출 가능하면 우선
-                    Type includeType = inv.propInclude?.PropertyType;
-                    if (includeType == null || !includeType.IsEnum)
-                    {
-                        includeType =
-                            asm.GetType("UnityEditor.Formats.Fbx.Exporter.ExportSettings+Include")
-                            ?? asm.GetType("UnityEditor.Formats.Fbx.Exporter.Include")
-                            ?? FindNestedEnum(asm, "Include");
-                    }
-                    if (includeType != null && includeType.IsEnum)
-                    {
-                        try { inv.includeModelAndAnim = Enum.Parse(includeType, "ModelAndAnim"); }
-                        catch { inv.includeModelAndAnim = null; }
-                    }
-                }
-
-                return inv;
-            }
-
-            private static PropertyInfo FindProp(Type t, string name)
-            {
-                return t.GetProperty(name, BindingFlags.Public | BindingFlags.Instance)
-                    ?? t.GetProperty(name, BindingFlags.NonPublic | BindingFlags.Instance);
-            }
-
-            private static Type FindConcreteImplementation(Assembly asm, Type baseOrInterface)
-            {
-                Type best = null;
-                foreach (var t in asm.GetTypes())
-                {
-                    if (t.IsAbstract || t.IsInterface) continue;
-                    if (!baseOrInterface.IsAssignableFrom(t)) continue;
-                    // 기본 생성자 필요
-                    if (t.GetConstructor(Type.EmptyTypes) == null) continue;
-                    // 이름에 "Serialize" 가 포함된 쪽을 우선
-                    if (t.Name.IndexOf("Serialize", StringComparison.OrdinalIgnoreCase) >= 0) return t;
-                    if (best == null) best = t;
-                }
-                return best;
-            }
-
-            private static MethodInfo FindMethod(Type t, string name)
-            {
-                // 공개 메서드 우선, 없으면 비공개까지 (버전에 따라 internal 이기도 함)
-                return t.GetMethod(name, BindingFlags.Public | BindingFlags.Instance)
-                    ?? t.GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance);
-            }
-
-            private static Type FindNestedEnum(Assembly asm, string simpleName)
-            {
-                foreach (var t in asm.GetTypes())
-                {
-                    foreach (var n in t.GetNestedTypes(BindingFlags.Public | BindingFlags.NonPublic))
-                        if (n.IsEnum && n.Name == simpleName) return n;
-                }
-                return null;
-            }
-
-            public string Describe()
-            {
-                var mode = exportWithOptions != null && optionsType != null && includeModelAndAnim != null
-                    ? "options(ModelAndAnim)" : "basic(model only)";
-                var parts = new List<string>
-                {
-                    $"mode={mode}",
-                    $"optionsType={(optionsType != null ? optionsType.FullName : "<none>")}",
-                    $"includeEnum={(includeModelAndAnim != null ? includeModelAndAnim.ToString() : "<none>")}",
-                    $"Include={(propInclude != null ? "ok" : "MISSING")}",
-                    $"AnimSrc={(propAnimSource != null ? "ok" : "MISSING")}",
-                    $"AnimDest={(propAnimDest != null ? "ok" : "MISSING")}",
-                    $"AnimateSkinnedMesh={(propAnimateSkinnedMesh != null ? "ok" : "MISSING")}",
-                    $"Format={(exportFormatBinary != null ? "Binary" : "default")}",
-                };
-                return string.Join(", ", parts);
-            }
-
-            /// <summary>options 인스턴스의 공개/비공개 Setter 후보를 모두 나열 — 진단용.</summary>
-            public string DumpOptionsMembers()
-            {
-                if (optionsType == null) return "(no optionsType)";
-                var sb = new System.Text.StringBuilder();
-                sb.AppendLine($"Members of {optionsType.FullName}:");
-                foreach (var m in optionsType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
-                {
-                    if (m.IsSpecialName) continue; // property getters/setters
-                    var ps = m.GetParameters();
-                    var sig = string.Join(", ", ps.Select(p => p.ParameterType.Name + " " + p.Name));
-                    sb.AppendLine($"  {(m.IsPublic ? "pub" : "int")} {m.ReturnType.Name} {m.Name}({sig})");
-                }
-                foreach (var p in optionsType.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
-                {
-                    sb.AppendLine($"  prop {p.PropertyType.Name} {p.Name} {{ {(p.CanRead ? "get;" : "")} {(p.CanWrite ? "set;" : "")} }}");
-                }
-                foreach (var f in optionsType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
-                {
-                    sb.AppendLine($"  field {f.FieldType.Name} {f.Name}");
-                }
-                return sb.ToString();
-            }
-
-            public void Export(string path, GameObject root, Transform animRoot)
-            {
-                if (exportWithOptions != null && optionsType != null && includeModelAndAnim != null)
-                {
-                    var options = Activator.CreateInstance(optionsType);
-                    // 핵심 설정:
-                    //   ModelAnimIncludeOption = ModelAndAnim  → 애니메이션 포함
-                    //   AnimateSkinnedMesh     = true          → SMR 블렌드셰이프 커브 포함 (페이셜 필수)
-                    //   ExportUnrendered       = true          → 셸 SMR 에 머터리얼 없이도 유지
-                    //   AnimationSource/Dest   = shell root    → 애니메이터 추적 기준
-                    propInclude?           .SetValue(options, includeModelAndAnim);
-                    propAnimateSkinnedMesh?.SetValue(options, true);
-                    propExportUnrendered?  .SetValue(options, true);
-                    propEmbedTextures?     .SetValue(options, false);
-                    propAnimSource?        .SetValue(options, animRoot);
-                    propAnimDest?          .SetValue(options, animRoot);
-                    // ExportFormat = Binary — ASCII 에 비해 파일 크기가 대략 5~10× 작음
-                    if (exportFormatBinary != null)
-                        propExportFormat?.SetValue(options, exportFormatBinary);
-                    exportWithOptions.Invoke(null, new object[] { path, (UnityEngine.Object)root, options });
-                    return;
-                }
-
-                if (exportBasic != null)
-                {
-                    exportBasic.Invoke(null, new object[] { path, (UnityEngine.Object)root });
-                    return;
-                }
-
-                throw new InvalidOperationException("사용 가능한 ExportObject 오버로드를 찾지 못했습니다.");
-            }
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes < 1024) return $"{bytes} B";
+            if (bytes < 1024 * 1024) return $"{bytes / 1024f:F1} KB";
+            return $"{bytes / (1024f * 1024f):F2} MB";
         }
 
         private static string SanitizeFileName(string name)
