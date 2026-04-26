@@ -36,7 +36,8 @@ Packages/com.yamo.unitytools/
     │   ├── MaterialAndTextureCollectorWindow.cs
     │   └── MissingScriptRemover.cs
     ├── Animation/
-    │   └── FacialAnimationBaker.cs
+    │   ├── FacialAnimationBaker.cs
+    │   └── ForearmHingeBaker.cs
     ├── Materials/
     │   └── NilotoonMaterialMatcapSetter.cs   ← lilToon MatCap → NiloToon BaseMapStackingLayer 이식
     ├── Physics/
@@ -149,20 +150,31 @@ Packages/com.yamo.unitytools/
 - FBX Exporter는 리플렉션으로 선택적 사용 — 없으면 에러 메시지만 띄우고 종료.
 - **수정 포인트**: `keyframeStride` (키 샘플링 간격), `include` dictionary (내보낼 path 선택), 임시 셸 생성 로직 (`BuildShellForClip`류 메서드).
 
-### 4-10. `Materials/NilotoonMaterialMatcapSetter.cs` — `Tools/YAMO/Materials/닐로툰 매트캡 자동 인식기`
+### 4-10. `Animation/ForearmHingeBaker.cs` — `Tools/YAMO/Animation/Forearm Hinge Baker`
+- Humanoid 애니메이션 클립에서 Forearm(아래팔)의 비-힌지 회전 성분을 제거해, Biped 등 단축 힌지 Forearm rig와 호환되는 Generic 클립을 생성한다. 결과 파일은 원본과 같은 폴더에 `<원본>_hinged.anim` 으로 저장.
+- 알고리즘:
+  1. 매 프레임 원본 클립을 `AnimationMode.SampleAnimationClip`으로 샘플링 → 모든 본의 로컬 트랜스폼 + 양쪽 손의 월드 위치/회전 기록.
+  2. **힌지각 해석적 풀이** — Forearm을 힌지축으로만 회전시킬 때 Hand가 그리는 원 위에서 원본 Hand 위치에 가장 가까운 점의 각도를 `Atan2`로 직접 계산 (θ=0, 90 두 샘플로 원의 기저 결정).
+  3. **UpperArm 최소 보정** — 힌지 후 잔여 오차를 `Quaternion.FromToRotation(어깨→손 현재 방향, 어깨→손 원본 방향)`으로 어깨에 합성.
+  4. **Hand 월드 회전 복원** — 손 자체 방향은 원본 그대로 유지.
+- 출력 클립은 모든 본의 `localRotation.x/y/z/w`, 변화 있는 본 한정 `localPosition.x/y/z` 커브를 직접 기록한 Generic 형식. `EnsureQuaternionContinuity` 적용.
+- 외부 의존성 없음. Unity Humanoid Avatar만 있으면 동작.
+- **수정 포인트**: `armTriplets` (다리 등 다른 트리플렛 추가) / `axisVec` 결정부 / `theta` 풀이 중 평면 투영 임계값(`1e-10f`).
+
+### 4-11. `Materials/NilotoonMaterialMatcapSetter.cs` — `Tools/YAMO/Materials/닐로툰 매트캡 자동 인식기`
 - 드래그한 NiloToon 머티리얼에서 lilToon MatCap 1/2 슬롯 값을 추출해, NiloToon의 `_BaseMapStackingLayer[n]*` 슬롯으로 자동 주입.
 - 동작: 원본 머티리얼을 `Object.Instantiate`로 복제하고 복제본 셰이더를 lilToon으로 임시 교체 → MatCap 프로퍼티 읽기 → 원본(NiloToon)에 쓰기 → 복제본 `DestroyImmediate`.
 - 대상 셰이더(`lilToon`)가 프로젝트에 없으면 에러 로그 후 중단. 셰이더 참조는 `Shader.Find`(문자열) 기반이라 asmdef 참조 불필요.
 - UI는 UIElements(UXML). 외부 프로젝트의 공용 스타일(`Assets/Scripts/Streamingle/.../StreamingleCommon.uss`)을 optional로 로드 — 없으면 스타일만 미적용.
 - **수정 포인트**: `pEnableName_Front/Back` (layer enable 프로퍼티 이름 규칙), `ColorBlendMode` 매핑 테이블(현재 0/1/2/3/else → 0/2/3/4/5로 변환), layer 탐색 개수(1~10).
 
-### 4-11. `Physics/AvatarPhysicsMigrator.cs` — `Tools/YAMO/Physics/Avatar Physics Migrator`
+### 4-12. `Physics/AvatarPhysicsMigrator.cs` — `Tools/YAMO/Physics/Avatar Physics Migrator`
 - 같은 폴더의 `YAMO.UnityTools.Physics.Editor.asmdef` 가 `defineConstraints: [YAMO_HAS_MAGICACLOTH, YAMO_HAS_VRM]` 로 조건부 컴파일을 담당. 두 심볼이 모두 있을 때만 이 asmdef(=파일)가 컴파일됨. 파일 내부 `#if` 가드 불필요.
 - 소스 아바타(Armature, MagicaCloth·VRM 구성 있음) → 타깃 아바타(Biped 등 다른 rig)로 물리 세팅을 옮기는 마이그레이션 툴.
 - 기능: Analyze(본 이름 매칭률·중복·컴포넌트 수 집계) / Migrate(MagicaCloth·VRMSpringBone·콜라이더 복사) / MagicaCloth PreBuild 자동 생성 / BlendShape 마이그레이션·리셋.
 - **수정 포인트**: 맨 앞 `#if` 라인 / `Analyze()` / `Migrate()` / `AutoCreatePreBuildData()` / `MigrateBlendShapes()`.
 
-### 4-12. `Layout/GlobalLayoutManager.cs` — `Tools/YAMO/Layout/Load ...`
+### 4-13. `Layout/GlobalLayoutManager.cs` — `Tools/YAMO/Layout/Load ...`
 - 저장된 Unity 창 레이아웃 (`.wlt`) 을 에디터 메뉴 한 번으로 즉시 적용.
 - `UnityEditor.WindowLayout.LoadWindowLayout(string, ...)` (internal) 을 리플렉션으로 호출. 시그니처 변동에 대응해 파라미터 개수에 맞춰 인자 채움.
 - `.wlt` 검색 경로:
