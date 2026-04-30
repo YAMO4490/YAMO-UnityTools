@@ -139,6 +139,23 @@ namespace YAMO.UnityTools.Editor
             }
 
             EditorGUILayout.Space();
+            GUILayout.Label("Collider Cleanup (Selection)", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox("Hierarchy에서 선택한 오브젝트 하위의 콜라이더 오브젝트를 선택하거나 삭제합니다.", MessageType.Info);
+
+            using (new EditorGUI.DisabledScope(Selection.activeGameObject == null))
+            {
+                if (GUILayout.Button("Select All Collider Objects"))
+                {
+                    SelectColliderObjects();
+                }
+
+                if (GUILayout.Button("Delete All Collider Objects (Safe)"))
+                {
+                    DeleteColliderObjectsSafe();
+                }
+            }
+
+            EditorGUILayout.Space();
             GUILayout.Label("BlendShape Tools", EditorStyles.boldLabel);
             if (GUILayout.Button("Migrate BlendShapes"))
             {
@@ -727,6 +744,119 @@ namespace YAMO.UnityTools.Editor
                 }
             }
             return newList.ToArray();
+        }
+
+        private List<GameObject> FindColliderObjects(GameObject root)
+        {
+            var result = new HashSet<GameObject>();
+
+            foreach (var c in root.GetComponentsInChildren<MagicaCloth2.MagicaCapsuleCollider>(true))
+                result.Add(c.gameObject);
+            foreach (var c in root.GetComponentsInChildren<MagicaCloth2.MagicaSphereCollider>(true))
+                result.Add(c.gameObject);
+            foreach (var c in root.GetComponentsInChildren<MagicaCloth2.MagicaPlaneCollider>(true))
+                result.Add(c.gameObject);
+            foreach (var c in root.GetComponentsInChildren<VRM.VRMSpringBoneColliderGroup>(true))
+                result.Add(c.gameObject);
+
+            return result.ToList();
+        }
+
+        private HashSet<Transform> CollectAllBones(GameObject root)
+        {
+            var bones = new HashSet<Transform>();
+            foreach (var smr in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                if (smr.rootBone != null)
+                    bones.Add(smr.rootBone);
+                if (smr.bones != null)
+                {
+                    foreach (var b in smr.bones)
+                    {
+                        if (b != null) bones.Add(b);
+                    }
+                }
+            }
+            return bones;
+        }
+
+        private void SelectColliderObjects()
+        {
+            var root = Selection.activeGameObject;
+            if (root == null) return;
+
+            var colliderObjects = FindColliderObjects(root);
+            if (colliderObjects.Count == 0)
+            {
+                Log($"'{root.name}' 하위에 콜라이더 오브젝트가 없습니다.");
+                return;
+            }
+
+            Selection.objects = colliderObjects.ToArray();
+            Log($"{colliderObjects.Count}개의 콜라이더 오브젝트를 선택했습니다.");
+        }
+
+        private void DeleteColliderObjectsSafe()
+        {
+            var root = Selection.activeGameObject;
+            if (root == null) return;
+
+            var colliderObjects = FindColliderObjects(root);
+            if (colliderObjects.Count == 0)
+            {
+                Log($"'{root.name}' 하위에 콜라이더 오브젝트가 없습니다.");
+                return;
+            }
+
+            var allBones = CollectAllBones(root);
+            var boneConflicts = colliderObjects
+                .Where(go => allBones.Contains(go.transform))
+                .ToList();
+
+            if (boneConflicts.Count > 0)
+            {
+                var names = string.Join("\n  ", boneConflicts.Select(go => go.name));
+                var message = $"{boneConflicts.Count}개의 콜라이더 오브젝트가 SkinnedMeshRenderer 본으로 사용 중입니다:\n  {names}\n\n" +
+                    "이 오브젝트들은 삭제에서 제외하고, 컴포넌트만 제거합니다.\n나머지 오브젝트는 삭제합니다. 계속하시겠습니까?";
+
+                if (!EditorUtility.DisplayDialog("Bone Conflict Detected", message, "Continue", "Cancel"))
+                    return;
+            }
+            else
+            {
+                if (!EditorUtility.DisplayDialog("Delete Collider Objects",
+                    $"{colliderObjects.Count}개의 콜라이더 오브젝트를 삭제합니다.\n계속하시겠습니까?", "Delete", "Cancel"))
+                    return;
+            }
+
+            Undo.SetCurrentGroupName("Delete Collider Objects");
+            int deletedCount = 0;
+            int strippedCount = 0;
+
+            foreach (var go in colliderObjects)
+            {
+                if (go == null) continue;
+
+                if (allBones.Contains(go.transform))
+                {
+                    foreach (var c in go.GetComponents<MagicaCloth2.MagicaCapsuleCollider>())
+                        Undo.DestroyObjectImmediate(c);
+                    foreach (var c in go.GetComponents<MagicaCloth2.MagicaSphereCollider>())
+                        Undo.DestroyObjectImmediate(c);
+                    foreach (var c in go.GetComponents<MagicaCloth2.MagicaPlaneCollider>())
+                        Undo.DestroyObjectImmediate(c);
+                    foreach (var c in go.GetComponents<VRM.VRMSpringBoneColliderGroup>())
+                        Undo.DestroyObjectImmediate(c);
+                    strippedCount++;
+                }
+                else
+                {
+                    Undo.DestroyObjectImmediate(go);
+                    deletedCount++;
+                }
+            }
+
+            Log($"삭제: {deletedCount}개 오브젝트 / 컴포넌트만 제거: {strippedCount}개 (본 보호)");
         }
 
         private void MigrateBlendShapes()
