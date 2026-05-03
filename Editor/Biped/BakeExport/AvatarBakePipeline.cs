@@ -14,8 +14,10 @@ using System.IO;
 using System.Linq;
 using UniHumanoid;
 using UnityEditor;
-using UnityEditor.Formats.Fbx.Exporter;
 using UnityEngine;
+// FBX Exporter 호출은 YamoFbxExportCompat (reflection) 를 통해 수행한다.
+// 정식 UPM 패키지 / 임베디드(asmdef 없는 형태) / 미설치 환경 모두에서 자기 완결적으로
+// 동작하기 위해 컴파일 타임 의존을 제거.
 
 namespace YAMO.UnityTools.Editor
 {
@@ -161,19 +163,16 @@ namespace YAMO.UnityTools.Editor
                 EnsureProjectFolder(opt.FbxProjectPath);
                 EnsureDirectory(Path.GetDirectoryName(fbxAbsolute));
 
-                // ExportModelOptions 를 명시 지정:
+                // ExportModelOptions 를 명시 지정 (reflection 경유):
                 //   - UseMayaCompatibleNames = false : "Bangs.1" 같은 이름의 점(.)이 _ 로
                 //                                      치환되는 문제 방지
                 //   - ExportFormat = Binary          : 바이너리 FBX (파일 크기/호환성)
-                var exportOptions = new ExportModelOptions
-                {
-                    ExportFormat = ExportFormat.Binary,
-                    UseMayaCompatibleNames = false,
-                };
-                var written = ModelExporter.ExportObject(fbxAbsolute, normalized, exportOptions);
+                // v5+ FBX Exporter 가 없으면 옵션 없는 fallback 으로 동작 (기능 손실 경고).
+                var exportOptions = YamoFbxExportCompat.BuildBinaryNoMayaCompatOptions();
+                var written = YamoFbxExportCompat.ExportObject(fbxAbsolute, normalized, exportOptions);
                 if (string.IsNullOrEmpty(written))
                 {
-                    log.Error("ModelExporter.ExportObject returned null.");
+                    log.Error("YamoFbxExportCompat.ExportObject returned null.");
                     return false;
                 }
 

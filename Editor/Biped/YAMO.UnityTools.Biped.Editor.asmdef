@@ -8,8 +8,7 @@
         "MagicaClothV2.Editor",
         "VRM",
         "UniGLTF",
-        "UniHumanoid",
-        "Unity.Formats.Fbx.Editor"
+        "UniHumanoid"
     ],
     "includePlatforms": [
         "Editor"
