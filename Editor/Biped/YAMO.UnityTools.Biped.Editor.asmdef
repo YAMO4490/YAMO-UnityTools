@@ -1,0 +1,28 @@
+{
+    "name": "YAMO.UnityTools.Biped.Editor",
+    "rootNamespace": "YAMO.UnityTools.Editor",
+    "references": [
+        "YAMO.UnityTools.Editor",
+        "YAMO.UnityTools.Physics.Editor",
+        "MagicaClothV2",
+        "MagicaClothV2.Editor",
+        "VRM",
+        "UniGLTF",
+        "UniHumanoid",
+        "Unity.Formats.Fbx.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "YAMO_HAS_MAGICACLOTH",
+        "YAMO_HAS_VRM"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

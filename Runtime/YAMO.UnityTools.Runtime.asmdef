@@ -1,12 +1,8 @@
 {
-    "name": "YAMO.UnityTools.Editor",
-    "rootNamespace": "YAMO.UnityTools.Editor",
-    "references": [
-        "YAMO.UnityTools.Runtime"
-    ],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "name": "YAMO.UnityTools.Runtime",
+    "rootNamespace": "YAMO.UnityTools",
+    "references": [],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

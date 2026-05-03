@@ -83,12 +83,31 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     private bool texResizeScanned = false;
 
     // =====================================================
+    // 섹션 4: 닐로툰 매트캡 자동 인식기
+    // =====================================================
+    // 원본: NilotoonMaterialMatcapSetter.cs (UI Toolkit) → IMGUI 로 포팅 통합
+    private struct MatcapInfo
+    {
+        public bool   UseMatCap;
+        public Texture Tex;
+        public Color   Color;
+        public Texture BlendMask;
+        public int     BlendMode;
+    }
+    private List<Material> matcapMaterials = new List<Material>();
+    private Vector2 matcapScroll;
+    private const string MatcapTargetShaderName = "lilToon";
+    private const string MatcapEnableNameFront  = "_BaseMapStackingLayer";
+    private const string MatcapEnableNameBack   = "Enable";
+
+    // =====================================================
     // 공통
     // =====================================================
     private Vector2 scroll;
     private bool sec1Foldout = true;
     private bool sec2Foldout = true;
     private bool sec3Foldout = true;
+    private bool sec4Foldout = true;
 
     // 수정됨: "&" -> "And"로 원복하여 기존 경로와 일치시킴
     [MenuItem("Tools/YAMO/Assets/Material And Texture Tool")]
@@ -106,7 +125,12 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         }
     }
 
-    private void OnGUI()
+    private void OnGUI() => DrawGUI();
+
+    /// <summary>
+    /// 외부(예: Tool Hub) 에서 호출해 임베드할 수 있는 GUI 본체.
+    /// </summary>
+    public void DrawGUI()
     {
         GUILayout.Label("\uD83C\uDF1F 머테리얼 & 텍스처 유틸리티", EditorStyles.boldLabel);
 
@@ -418,6 +442,62 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
             }
         }
         // ▲▲▲ 섹션 3 ▲▲▲
+
+        // ▼▼▼ 섹션 4: 닐로툰 매트캡 자동 인식기 ▼▼▼
+        sec4Foldout = DrawFoldoutSectionHeader(sec4Foldout, "🎨  닐로툰 매트캡 자동 인식기 (lilToon → NiloToon)");
+        if (sec4Foldout)
+        {
+            EditorGUILayout.HelpBox(
+                "선택한 NiloToon 머티리얼에서 lilToon 매트캡 값을 찾아\n" +
+                "BaseMapStackingLayer 슬롯에 자동 반영합니다.\n" +
+                "원본 셰이더를 임시로 lilToon 으로 교체해 MatCap 프로퍼티만 읽으므로\n" +
+                "프로젝트에 lilToon 셰이더가 설치돼 있어야 합니다.",
+                MessageType.Info);
+
+            // 드래그 앤 드롭 영역
+            Rect dropArea = GUILayoutUtility.GetRect(0, 50, GUILayout.ExpandWidth(true));
+            GUI.Box(dropArea, "여기에 머티리얼을 드래그하세요");
+            HandleMatcapDragAndDrop(dropArea);
+
+            // 추가된 머티리얼 리스트
+            EditorGUILayout.Space(2);
+            if (matcapMaterials.Count == 0)
+            {
+                EditorGUILayout.LabelField("(추가된 머티리얼 없음)", EditorStyles.miniLabel);
+            }
+            else
+            {
+                EditorGUILayout.LabelField($"📋 추가된 머티리얼 ({matcapMaterials.Count}개)", EditorStyles.boldLabel);
+                matcapScroll = EditorGUILayout.BeginScrollView(matcapScroll, GUILayout.Height(120));
+                for (int i = matcapMaterials.Count - 1; i >= 0; i--)
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    matcapMaterials[i] = (Material)EditorGUILayout.ObjectField(matcapMaterials[i], typeof(Material), false);
+                    if (GUILayout.Button("X", GUILayout.Width(24)))
+                    {
+                        matcapMaterials.RemoveAt(i);
+                        GUIUtility.ExitGUI();
+                    }
+                    EditorGUILayout.EndHorizontal();
+                }
+                EditorGUILayout.EndScrollView();
+
+                if (GUILayout.Button("리스트 비우기", GUILayout.Width(120)))
+                {
+                    matcapMaterials.Clear();
+                }
+            }
+
+            EditorGUILayout.Space(4);
+            using (new EditorGUI.DisabledScope(matcapMaterials.Count == 0))
+            {
+                if (GUILayout.Button("자동 복사 실행", GUILayout.Height(28)))
+                {
+                    ProcessMatcapMaterials();
+                }
+            }
+        }
+        // ▲▲▲ 섹션 4 ▲▲▲
 
         EditorGUILayout.EndScrollView();
     }
@@ -1286,6 +1366,130 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         var style = new GUIStyle(EditorStyles.miniLabel);
         style.normal.textColor = new Color(0.4f, 0.7f, 1f); // 하늘색
         return style;
+    }
+
+    // =====================================================
+    // 섹션 4 메서드: 닐로툰 매트캡 자동 인식기
+    // =====================================================
+
+    private void HandleMatcapDragAndDrop(Rect dropArea)
+    {
+        var evt = Event.current;
+        if (evt.type != EventType.DragUpdated && evt.type != EventType.DragPerform) return;
+        if (!dropArea.Contains(evt.mousePosition)) return;
+
+        DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+
+        if (evt.type == EventType.DragPerform)
+        {
+            DragAndDrop.AcceptDrag();
+            foreach (var obj in DragAndDrop.objectReferences)
+            {
+                if (obj is Material m && !matcapMaterials.Contains(m))
+                {
+                    matcapMaterials.Add(m);
+                }
+            }
+            evt.Use();
+            Repaint();
+        }
+    }
+
+    /// <summary>
+    /// 추가된 머티리얼들에 대해 lilToon → NiloToon MatCap 이행 처리.
+    /// 각 머티리얼의 셰이더를 lilToon 으로 임시 교체한 클론에서 MatCap 값을 읽고,
+    /// 원본의 BaseMapStackingLayer[n] 빈 슬롯에 주입한다.
+    /// </summary>
+    private void ProcessMatcapMaterials()
+    {
+        Shader lilToonShader = Shader.Find(MatcapTargetShaderName);
+        if (lilToonShader == null)
+        {
+            EditorUtility.DisplayDialog("오류",
+                "lilToon Shader 를 찾을 수 없습니다. 먼저 프로젝트에 추가해주세요.", "확인");
+            Debug.LogError("[MatCap] lilToon Shader 미발견.");
+            return;
+        }
+
+        int processedCount = 0;
+        foreach (Material original in matcapMaterials)
+        {
+            if (original == null) continue;
+
+            Material clone = Object.Instantiate(original);
+            clone.shader = lilToonShader;
+
+            var infos = new List<MatcapInfo>();
+            var info1 = GetMatcapInfoByName(clone, "_UseMatCap",    isFirst: true);
+            var info2 = GetMatcapInfoByName(clone, "_UseMatCap2nd", isFirst: false);
+            if (info1.UseMatCap) infos.Add(info1);
+            if (info2.UseMatCap) infos.Add(info2);
+
+            foreach (var matcap in infos)
+            {
+                int targetLayer = 0;
+                for (int i = 1; i <= 10; i++)
+                {
+                    if (original.GetFloat(MatcapEnableNameFront + i + MatcapEnableNameBack) < 0.5f)
+                    {
+                        targetLayer = i;
+                        original.SetFloat(MatcapEnableNameFront + i + MatcapEnableNameBack, 1f);
+                        break;
+                    }
+                }
+                if (targetLayer == 0) continue; // 빈 슬롯이 없음
+
+                string layer = targetLayer.ToString();
+                original.SetVector($"_BaseMapStackingLayer{layer}TexUVCenterPivotScalePos", new Vector4(1, 1, 0, 0));
+                original.SetVector($"_BaseMapStackingLayer{layer}TexUVScaleOffset",        new Vector4(1, 1, 0, 0));
+                original.SetVector($"_BaseMapStackingLayer{layer}TexUVAnimSpeed",          new Vector4(0, 0, 0, 0));
+                original.SetVector($"_BaseMapStackingLayer{layer}MaskTexChannel",          new Vector4(0, 1, 0, 0));
+                original.SetFloat ($"_BaseMapStackingLayer{layer}TexUVRotatedAngle",  0);
+                original.SetFloat ($"_BaseMapStackingLayer{layer}TexUVRotateSpeed",   0);
+                original.SetFloat ($"_BaseMapStackingLayer{layer}MaskUVIndex",        0);
+                original.SetFloat ($"_BaseMapStackingLayer{layer}MaskInvertColor",    0);
+                original.SetFloat ($"_BaseMapStackingLayer{layer}TexIgnoreAlpha",     0);
+
+                int blend = matcap.BlendMode;
+                int mappedBlend = blend == 0 ? 0 : blend == 1 ? 2 : blend == 2 ? 3 : blend == 3 ? 4 : 5;
+                original.SetFloat($"_BaseMapStackingLayer{layer}ColorBlendMode", mappedBlend);
+
+                original.SetTexture($"_BaseMapStackingLayer{layer}Tex", matcap.Tex);
+                original.SetColor  ($"_BaseMapStackingLayer{layer}TintColor",
+                    new Color(matcap.Color.r, matcap.Color.g, matcap.Color.b, 1f));
+                original.SetFloat  ($"_BaseMapStackingLayer{layer}MasterStrength", matcap.Color.a);
+                original.SetFloat  ($"_BaseMapStackingLayer{layer}TexUVIndex",     4);
+                original.SetTexture($"_BaseMapStackingLayer{layer}MaskTex", matcap.BlendMask);
+
+                EditorUtility.SetDirty(original);
+            }
+
+            DestroyImmediate(clone);
+            processedCount++;
+        }
+
+        AssetDatabase.SaveAssets();
+        Debug.Log($"[MatCap] 자동 복사 완료: {processedCount}개 머티리얼");
+
+        matcapMaterials.Clear();
+        Repaint();
+    }
+
+    private MatcapInfo GetMatcapInfoByName(Material mat, string propertyName, bool isFirst)
+    {
+        string suffix = isFirst ? string.Empty : "2nd";
+        if (mat.HasProperty(propertyName) && mat.GetInt(propertyName) == 1)
+        {
+            return new MatcapInfo
+            {
+                UseMatCap = true,
+                Tex       = mat.GetTexture("_MatCap" + suffix + "Tex"),
+                Color     = mat.GetColor  ("_MatCap" + suffix + "Color"),
+                BlendMask = mat.GetTexture("_MatCap" + suffix + "BlendMask"),
+                BlendMode = mat.GetInt    ("_MatCap" + suffix + "BlendMode"),
+            };
+        }
+        return new MatcapInfo { UseMatCap = false };
     }
 }
 }

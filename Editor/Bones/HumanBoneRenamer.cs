@@ -14,6 +14,14 @@ public class HumanBoneRenamer : EditorWindow
     private GameObject targetGameObject;
     private bool showMapping = false;
     private Vector2 scrollPosition;
+
+    // UpperChest 만은 Unity 표준 "UpperChest" 가 아닌 "Chest_Secondary" 로 변경하여
+    // Unity 의 자동 매핑이 UpperChest 슬롯을 인식하지 않게 우회.
+    private const string UpperChestReplacementName = "Chest_Secondary";
+
+    // 표준 Humanoid chain (Spine → Chest → UpperChest → Neck → Head) 기준
+    // 정상 intermediates 개수 최댓값. 그보다 크면 mocap 등 비정상 chain.
+    private const int MaxChainIntermediatesNormal = 2;
     
     // Unity Human Bone 매핑 테이블
     private static readonly Dictionary<HumanBodyBones, string> humanBoneNames = new Dictionary<HumanBodyBones, string>()
@@ -184,6 +192,58 @@ public class HumanBoneRenamer : EditorWindow
         EditorGUILayout.EndScrollView();
     }
     
+    /// <summary>
+    /// chain 거리 계산. descendant 의 부모 체인을 거슬러 ancestor 를 만나기 전까지의
+    /// transform 수를 반환. 동일 chain 이 아니면 -1.
+    /// </summary>
+    private static int CountChainIntermediates(Transform descendant, Transform ancestor)
+    {
+        if (descendant == null || ancestor == null) return -1;
+        int hops = 0;
+        var t = descendant.parent;
+        while (t != null && t != ancestor)
+        {
+            hops++;
+            t = t.parent;
+        }
+        return t == null ? -1 : hops;
+    }
+
+    /// <summary>
+    /// Pre-flight: Spine→Neck, Chest→Head 사이 chain intermediates 가 표준 범위(≤ 2)를
+    /// 벗어나는지 검사. 벗어나면 reason 에 사유를 채우고 true 반환(중단 권고).
+    /// </summary>
+    private bool ShouldAbortDueToChainDistance(
+        Dictionary<HumanBodyBones, Transform> bones,
+        out int spineToNeck, out int chestToHead, out string reason)
+    {
+        spineToNeck = -1;
+        chestToHead = -1;
+        reason = null;
+
+        if (bones.TryGetValue(HumanBodyBones.Spine, out var spineT)
+            && bones.TryGetValue(HumanBodyBones.Neck, out var neckT))
+        {
+            spineToNeck = CountChainIntermediates(neckT, spineT);
+            if (spineToNeck > MaxChainIntermediatesNormal)
+            {
+                reason = $"Spine→Neck 사이 본이 {spineToNeck}개입니다 (정상 ≤ {MaxChainIntermediatesNormal}). " +
+                         "이상 본을 수동으로 줄인 뒤 다시 시도하세요.";
+            }
+        }
+        if (bones.TryGetValue(HumanBodyBones.Chest, out var chestT)
+            && bones.TryGetValue(HumanBodyBones.Head, out var headT))
+        {
+            chestToHead = CountChainIntermediates(headT, chestT);
+            if (reason == null && chestToHead > MaxChainIntermediatesNormal)
+            {
+                reason = $"Chest→Head 사이 본이 {chestToHead}개입니다 (정상 ≤ {MaxChainIntermediatesNormal}). " +
+                         "이상 본을 수동으로 줄인 뒤 다시 시도하세요.";
+            }
+        }
+        return reason != null;
+    }
+
     private void PreviewRenaming()
     {
         var bones = GetHumanBones();
@@ -192,34 +252,58 @@ public class HumanBoneRenamer : EditorWindow
             EditorUtility.DisplayDialog("오류", "휴먼본을 찾을 수 없습니다.", "확인");
             return;
         }
-        
+
+        // Pre-flight: 비정상 chain 이면 미리보기 단계에서도 중단 사유 알림
+        if (ShouldAbortDueToChainDistance(bones, out var spn, out var cth, out var reason))
+        {
+            string aborted = $"중단됨: {reason}\n\n" +
+                             $"• Spine → Neck 사이: {spn}\n" +
+                             $"• Chest → Head 사이: {cth}\n\n" +
+                             "본 계층을 먼저 정리한 뒤 다시 시도하세요.";
+            EditorUtility.DisplayDialog("미리보기 - 중단", aborted, "확인");
+            return;
+        }
+
         string preview = "변경될 본 이름:\n\n";
         int changeCount = 0;
-        
+        bool hasUpperChest = false;
+
         foreach (var bone in bones)
         {
-            if (humanBoneNames.TryGetValue(bone.Key, out string newName))
+            string newName;
+            if (bone.Key == HumanBodyBones.UpperChest)
             {
-                if (bone.Value.name != newName)
-                {
-                    preview += $"{bone.Value.name} → {newName}\n";
-                    changeCount++;
-                }
+                hasUpperChest = true;
+                newName = UpperChestReplacementName;
+            }
+            else if (!humanBoneNames.TryGetValue(bone.Key, out newName))
+            {
+                continue;
+            }
+
+            if (bone.Value.name != newName)
+            {
+                preview += $"{bone.Value.name} → {newName}\n";
+                changeCount++;
             }
         }
-        
+
         if (changeCount == 0)
         {
-            preview += "변경할 본이 없습니다. (이미 Unity 표준 이름)";
+            preview += "변경할 본이 없습니다. (이미 표준 이름)";
         }
         else
         {
             preview = $"총 {changeCount}개 본 이름이 변경됩니다:\n\n" + preview;
         }
-        
+        if (hasUpperChest)
+        {
+            preview += $"\n참고: UpperChest → '{UpperChestReplacementName}' (Unity 가 UpperChest 슬롯을 자동 인식하지 않도록 우회)";
+        }
+
         EditorUtility.DisplayDialog("미리보기", preview, "확인");
     }
-    
+
     private void RenameHumanBones()
     {
         var bones = GetHumanBones();
@@ -228,43 +312,102 @@ public class HumanBoneRenamer : EditorWindow
             EditorUtility.DisplayDialog("오류", "휴먼본을 찾을 수 없습니다.", "확인");
             return;
         }
-        
+
+        // ---- Pre-flight: chain 거리 ----
+        if (ShouldAbortDueToChainDistance(bones, out var spn, out var cth, out var reason))
+        {
+            string aborted = $"중단됨: {reason}\n\n" +
+                             $"• Spine → Neck 사이: {spn}\n" +
+                             $"• Chest → Head 사이: {cth}\n\n" +
+                             "본을 변경하지 않았습니다. 본 계층을 먼저 정리한 뒤 다시 시도하세요.";
+            EditorUtility.DisplayDialog("휴먼본 이름 변환 - 중단", aborted, "확인");
+            return;
+        }
+
         // Undo 등록
         var transforms = new List<Transform>();
-        foreach (var bone in bones)
-        {
-            transforms.Add(bone.Value);
-        }
+        foreach (var bone in bones) transforms.Add(bone.Value);
         Undo.RecordObjects(transforms.ToArray(), "Rename Human Bones");
-        
+
         int changeCount = 0;
-        
+        bool hasUpperChest = false;
+        bool upperChestRenamed = false;
+
         foreach (var bone in bones)
         {
-            if (humanBoneNames.TryGetValue(bone.Key, out string newName))
+            string newName;
+            if (bone.Key == HumanBodyBones.UpperChest)
             {
-                if (bone.Value.name != newName)
-                {
-                    Debug.Log($"[Human Bone Renamer] {bone.Value.name} → {newName}");
-                    bone.Value.name = newName;
-                    changeCount++;
-                }
+                hasUpperChest = true;
+                newName = UpperChestReplacementName;
+            }
+            else if (!humanBoneNames.TryGetValue(bone.Key, out newName))
+            {
+                continue;
+            }
+
+            if (bone.Value.name != newName)
+            {
+                Debug.Log($"[Human Bone Renamer] {bone.Value.name} → {newName}");
+                bone.Value.name = newName;
+                changeCount++;
+                if (bone.Key == HumanBodyBones.UpperChest) upperChestRenamed = true;
             }
         }
-        
+
+        // 사후 카운트 체크
+        int spineCount = 0, chestCount = 0;
+        if (targetGameObject != null)
+        {
+            foreach (var t in targetGameObject.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.name == "Spine") spineCount++;
+                else if (t.name == "Chest") chestCount++;
+            }
+        }
+        bool leftToesDetected  = bones.ContainsKey(HumanBodyBones.LeftToes);
+        bool rightToesDetected = bones.ContainsKey(HumanBodyBones.RightToes);
+
+        // 결과 팝업 구성
+        string result;
         if (changeCount > 0)
         {
-            EditorUtility.DisplayDialog("완료", $"{changeCount}개 휴먼본의 이름이 Unity 표준으로 변경되었습니다.", "확인");
-            
-            // Scene을 Dirty로 마킹
-            if (targetGameObject != null)
-            {
-                EditorUtility.SetDirty(targetGameObject);
-            }
+            result = $"{changeCount}개 휴먼본의 이름이 Unity 표준으로 변경되었습니다.";
         }
         else
         {
-            EditorUtility.DisplayDialog("정보", "변경할 본이 없습니다. 이미 Unity 표준 이름을 사용하고 있습니다.", "확인");
+            result = "변경할 본이 없습니다. 이미 Unity 표준 이름을 사용하고 있습니다.";
+        }
+
+        if (hasUpperChest)
+        {
+            result += upperChestRenamed
+                ? $"\n• UpperChest → '{UpperChestReplacementName}' 으로 변경됨 (Unity 가 UpperChest 슬롯을 자동 매핑하지 않음)."
+                : $"\n• UpperChest 검출됨; 이미 '{UpperChestReplacementName}' 이름.";
+        }
+
+        result += $"\n\nSpine 개수: {spineCount} (정상 = 1)";
+        result += $"\nChest 개수: {chestCount} (정상 = 1)";
+
+        bool warnSpine = spineCount != 1;
+        bool warnChest = chestCount != 1;
+        bool warnLeftToes = !leftToesDetected;
+        bool warnRightToes = !rightToesDetected;
+
+        if (warnSpine || warnChest || warnLeftToes || warnRightToes)
+        {
+            result += "\n\n⚠ 확인 필요:";
+            if (warnSpine) result += "\n - Spine 개수가 1이 아님. 계층 점검 필요.";
+            if (warnChest) result += "\n - Chest 개수가 1이 아님. 계층 점검 필요.";
+            if (warnLeftToes)  result += "\n - 좌측 Toes 가 자동 검출 안 됨. 수동 변환 필요할 수 있음.";
+            if (warnRightToes) result += "\n - 우측 Toes 가 자동 검출 안 됨. 수동 변환 필요할 수 있음.";
+        }
+
+        EditorUtility.DisplayDialog(changeCount > 0 ? "완료" : "정보", result, "확인");
+
+        if (changeCount > 0 && targetGameObject != null)
+        {
+            EditorUtility.SetDirty(targetGameObject);
         }
     }
     

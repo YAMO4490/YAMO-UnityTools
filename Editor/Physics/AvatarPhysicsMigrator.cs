@@ -2,12 +2,15 @@
 // 조건부 컴파일은 같은 폴더의 YAMO.UnityTools.Physics.Editor.asmdef가
 // defineConstraints = [YAMO_HAS_MAGICACLOTH, YAMO_HAS_VRM] 로 담당하며,
 // 해당 심볼은 Editor/Internal/YamoDependencyDetector.cs가 자동 주입합니다.
+//
+// 마이그레이션 로직 본체는 AvatarMigrationCore.cs 로 분리되었고,
+// 본 파일은 EditorWindow UI + 편의기능(PreBuild, Collider Cleanup, Reset BlendShapes 등)을
+// 담당합니다.
 
 using UnityEngine;
 using UnityEditor;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using MagicaCloth2;
 using VRM;
 
@@ -37,9 +40,8 @@ namespace YAMO.UnityTools.Editor
         private GameObject sourceAvatar;
         private GameObject targetAvatar;
         private Vector2 scrollPosition;
-        
+
         private List<string> logMessages = new List<string>();
-        private bool isProcessing = false;
         private string preBuildFolderPath = "Assets/MagicaPreBuildData";
         private AnalysisResult analysisResult;
 
@@ -49,13 +51,26 @@ namespace YAMO.UnityTools.Editor
             public int nameMatchCount;
             public int duplicateCount;
             public List<string> duplicateNames;
-            
+
             public int magicaClothCount;
             public int vrmSpringCount;
             public int capsuleColliderCount;
             public int sphereColliderCount;
             public int planeColliderCount;
             public int vrmColliderGroupCount;
+        }
+
+        /// <summary>
+        /// AvatarMigrationCore 에 전달할 IMigrationLog 어댑터.
+        /// EditorWindow의 logMessages 패널과 Debug 콘솔에 동시 출력합니다.
+        /// </summary>
+        private class WindowLog : IMigrationLog
+        {
+            private readonly AvatarPhysicsMigrator _w;
+            public WindowLog(AvatarPhysicsMigrator w) { _w = w; }
+            public void Info(string m)    { _w.Log(m); }
+            public void Warning(string m) { _w.Log("Warning: " + m); }
+            public void Error(string m)   { _w.LogError(m); }
         }
 
         private void OnGUI()
@@ -81,7 +96,7 @@ namespace YAMO.UnityTools.Editor
                 EditorGUILayout.Space();
                 GUILayout.Label("Analysis Results:", EditorStyles.boldLabel);
                 EditorGUI.indentLevel++;
-                
+
                 // Name Match Rate
                 float matchRate = analysisResult.totalTransforms > 0 ? (float)analysisResult.nameMatchCount / analysisResult.totalTransforms * 100f : 0f;
                 EditorGUILayout.LabelField($"Name Match Rate: {analysisResult.nameMatchCount} / {analysisResult.totalTransforms} ({matchRate:F1}%)");
@@ -131,7 +146,7 @@ namespace YAMO.UnityTools.Editor
                 EditorGUILayout.Space();
                 GUILayout.Label("MagicaCloth PreBuild Automation", EditorStyles.boldLabel);
                 preBuildFolderPath = EditorGUILayout.TextField("Save Path", preBuildFolderPath);
-                
+
                 if (GUILayout.Button("Auto Create PreBuild Data (Target)"))
                 {
                     AutoCreatePreBuildData();
@@ -208,8 +223,8 @@ namespace YAMO.UnityTools.Editor
                 return false;
             }
 
-            // Check for duplicate names in Source
-            if (HasDuplicateNames(sourceAvatar.transform))
+            // 중복 이름 검사를 코어로 위임. 통과(true)면 OK, 실패(false)면 중단.
+            if (!AvatarMigrationCore.ValidateNoDuplicateNames(sourceAvatar.transform, new WindowLog(this)))
             {
                 return false;
             }
@@ -217,51 +232,21 @@ namespace YAMO.UnityTools.Editor
             return true;
         }
 
-        private bool HasDuplicateNames(Transform root)
-        {
-            var names = new HashSet<string>();
-            var duplicates = new List<string>();
-            
-            void Traverse(Transform t)
-            {
-                if (!names.Add(t.name))
-                {
-                    duplicates.Add(t.name);
-                }
-                foreach (Transform child in t) Traverse(child);
-            }
-
-            Traverse(root);
-
-            if (duplicates.Count > 0)
-            {
-                LogError($"Duplicate names found in Source Avatar: {string.Join(", ", duplicates.Distinct())}");
-                LogError("Please rename duplicate objects to ensure unique mapping.");
-                return true;
-            }
-
-            return false;
-        }
-
         private void Migrate()
         {
-            isProcessing = true;
             Log("Starting migration...");
 
-            // 1. Build Bone Map
-            var boneMap = BuildBoneMap(sourceAvatar.transform, targetAvatar.transform);
-            if (boneMap == null)
-            {
-                isProcessing = false;
-                return;
-            }
+            var log = new WindowLog(this);
 
-            // 2. Copy Components
-            CopyColliders(sourceAvatar.transform, boneMap);
-            CopyPhysicsComponents(sourceAvatar.transform, boneMap);
+            // 1. Build bone map
+            var boneMap = AvatarMigrationCore.BuildBoneMap(sourceAvatar, targetAvatar, log);
+
+            // 2. Migrate colliders + physics components
+            AvatarMigrationCore.MigrateColliders(sourceAvatar.transform, targetAvatar.transform, boneMap, log);
+            AvatarMigrationCore.MigrateMagicaCloth(sourceAvatar.transform, targetAvatar.transform, boneMap, log);
+            AvatarMigrationCore.MigrateVRMSpringBone(sourceAvatar.transform, targetAvatar.transform, boneMap, log);
 
             Log("Migration completed successfully!");
-            isProcessing = false;
         }
 
         private void Analyze()
@@ -271,7 +256,7 @@ namespace YAMO.UnityTools.Editor
 
             var sourceTransforms = sourceAvatar.GetComponentsInChildren<Transform>(true);
             var targetTransforms = targetAvatar.GetComponentsInChildren<Transform>(true);
-            
+
             analysisResult.totalTransforms = sourceTransforms.Length;
 
             // 1. Name Match Rate
@@ -285,166 +270,20 @@ namespace YAMO.UnityTools.Editor
                 if (!nameCounts.ContainsKey(t.name)) nameCounts[t.name] = 0;
                 nameCounts[t.name]++;
             }
-            
+
             analysisResult.duplicateNames = nameCounts.Where(kv => kv.Value > 1).Select(kv => kv.Key).ToList();
             analysisResult.duplicateCount = analysisResult.duplicateNames.Count;
 
             // 3. Component Counts
             analysisResult.magicaClothCount = sourceAvatar.GetComponentsInChildren<MagicaCloth2.MagicaCloth>(true).Length;
             analysisResult.vrmSpringCount = sourceAvatar.GetComponentsInChildren<VRM.VRMSpringBone>(true).Length;
-            
+
             analysisResult.capsuleColliderCount = sourceAvatar.GetComponentsInChildren<MagicaCloth2.MagicaCapsuleCollider>(true).Length;
             analysisResult.sphereColliderCount = sourceAvatar.GetComponentsInChildren<MagicaCloth2.MagicaSphereCollider>(true).Length;
             analysisResult.planeColliderCount = sourceAvatar.GetComponentsInChildren<MagicaCloth2.MagicaPlaneCollider>(true).Length;
             analysisResult.vrmColliderGroupCount = sourceAvatar.GetComponentsInChildren<VRM.VRMSpringBoneColliderGroup>(true).Length;
 
             Log("Analysis completed.");
-        }
-
-        private Dictionary<Transform, Transform> BuildBoneMap(Transform sourceRoot, Transform targetRoot)
-        {
-            var map = new Dictionary<Transform, Transform>();
-            var sourceAnimator = sourceAvatar.GetComponent<Animator>();
-            var targetAnimator = targetAvatar.GetComponent<Animator>();
-
-            // Phase 1: Humanoid Mapping
-            // Ensure Root is mapped
-            map[sourceRoot] = targetRoot;
-
-            if (sourceAnimator != null && sourceAnimator.isHuman && targetAnimator != null && targetAnimator.isHuman)
-            {
-                foreach (HumanBodyBones bone in System.Enum.GetValues(typeof(HumanBodyBones)))
-                {
-                    if (bone == HumanBodyBones.LastBone) continue;
-
-                    var sBone = sourceAnimator.GetBoneTransform(bone);
-                    var tBone = targetAnimator.GetBoneTransform(bone);
-
-                    if (sBone != null && tBone != null)
-                    {
-                        map[sBone] = tBone;
-                    }
-                }
-                Log($"Mapped {map.Count} humanoid bones.");
-            }
-            else
-            {
-                Log("Warning: One or both avatars are not Humanoid. Skipping Humanoid mapping.");
-            }
-
-            // Phase 2: Name Mapping (for non-humanoid bones)
-            // We traverse Source and try to find matching name in Target
-            // Optimization: Cache Target transforms by name? 
-            // Issue: Target might have duplicates too? We assume Target is clean or we just find first match.
-            // Better: Traverse Source, if not in map, search in Target.
-            
-            // To avoid finding wrong objects in Target, we should search relative to the mapped parent if possible,
-            // but structure is different (Armature vs Biped). 
-            // So global name search in Target is the fallback.
-            
-            var targetTransforms = targetRoot.GetComponentsInChildren<Transform>(true)
-                .GroupBy(t => t.name)
-                .ToDictionary(g => g.Key, g => g.First()); // Take first if duplicates exist in Target (User didn't ask to check Target duplicates, but good to know)
-
-            void MapRecursive(Transform current)
-            {
-                if (!map.ContainsKey(current))
-                {
-                    if (targetTransforms.TryGetValue(current.name, out var targetMatch))
-                    {
-                        map[current] = targetMatch;
-                    }
-                }
-
-                foreach (Transform child in current)
-                {
-                    MapRecursive(child);
-                }
-            }
-
-            MapRecursive(sourceRoot);
-            
-            Log($"Total mapped transforms: {map.Count}");
-            return map;
-        }
-
-        private void CopyColliders(Transform sourceRoot, Dictionary<Transform, Transform> boneMap)
-        {
-            // Magica Cloth 2 Colliders
-            // MagicaCapsuleCollider, MagicaSphereCollider, MagicaPlaneCollider
-            // VRM SpringBoneColliderGroup
-
-            // Collect only transforms that have the relevant components
-            var transformsWithColliders = new HashSet<Transform>();
-            
-            void Collect<T>() where T : Component
-            {
-                foreach (var c in sourceRoot.GetComponentsInChildren<T>(true))
-                {
-                    transformsWithColliders.Add(c.transform);
-                }
-            }
-
-            Collect<MagicaCloth2.MagicaCapsuleCollider>();
-            Collect<MagicaCloth2.MagicaSphereCollider>();
-            Collect<MagicaCloth2.MagicaPlaneCollider>();
-            Collect<VRM.VRMSpringBoneColliderGroup>();
-
-            foreach (var src in transformsWithColliders)
-            {
-                // Check if we have a destination parent
-                Transform destParent = null;
-                if (boneMap.TryGetValue(src, out var mappedDest))
-                {
-                    destParent = mappedDest;
-                }
-                else
-                {
-                    // Find nearest mapped parent
-                    var p = src.parent;
-                    while (p != null)
-                    {
-                        if (boneMap.TryGetValue(p, out var m))
-                        {
-                            // Check if it already exists by name under the mapped parent
-                            var existing = m.Find(src.name);
-                            if (existing != null) destParent = existing;
-                            else
-                            {
-                                // Duplicate the source object with explicit World Position and Rotation
-                                // This effectively "unlinks" it from the source hierarchy during creation
-                                var newObj = Instantiate(src.gameObject, src.position, src.rotation);
-                                newObj.name = src.name;
-                                
-                                // Parent to the target bone, MAINTAINING world position/rotation
-                                newObj.transform.SetParent(m, true);
-                                
-                                destParent = newObj.transform;
-                                
-                                // Add to map for children
-                                boneMap[src] = destParent;
-                                
-                                // Since we instantiated, we already have the components!
-                                // We don't need to CopyComponent again for this object.
-                                // However, we must continue to the next iteration to avoid adding duplicates below.
-                                goto NextItem; 
-                            }
-                            break;
-                        }
-                        p = p.parent;
-                    }
-                }
-
-                if (destParent == null) continue;
-
-                // Copy Components
-                CopyComponent<MagicaCloth2.MagicaCapsuleCollider>(src, destParent);
-                CopyComponent<MagicaCloth2.MagicaSphereCollider>(src, destParent);
-                CopyComponent<MagicaCloth2.MagicaPlaneCollider>(src, destParent);
-                CopyComponent<VRM.VRMSpringBoneColliderGroup>(src, destParent);
-
-                NextItem:;
-            }
         }
 
         private void AutoCreatePreBuildData()
@@ -484,7 +323,7 @@ namespace YAMO.UnityTools.Editor
                 try
                 {
                     var preBuildData = cloth.GetSerializeData2().preBuildData;
-                    
+
                     // Enable PreBuild
                     preBuildData.enabled = true;
 
@@ -496,14 +335,14 @@ namespace YAMO.UnityTools.Editor
 
                         var sobj = ScriptableObject.CreateInstance<MagicaCloth2.PreBuildScriptableObject>();
                         AssetDatabase.CreateAsset(sobj, assetPath);
-                        
+
                         preBuildData.preBuildScriptableObject = sobj;
                         EditorUtility.SetDirty(cloth);
                     }
 
                     // Run PreBuild
                     var result = MagicaCloth2.PreBuildDataCreation.CreatePreBuildData(cloth, false); // false = no dialog
-                    
+
                     if (result.IsSuccess())
                     {
                         successCount++;
@@ -525,226 +364,9 @@ namespace YAMO.UnityTools.Editor
             Log($"Auto PreBuild Completed. Success: {successCount} / {cloths.Length}");
         }
 
-        private void CopyPhysicsComponents(Transform sourceRoot, Dictionary<Transform, Transform> boneMap)
-        {
-            // Helper to get or create destination transform
-            Transform GetOrCreateDestination(Transform src, bool ignoreParent = false)
-            {
-                if (boneMap.TryGetValue(src, out var d)) return d;
-
-                Transform mappedParent = null;
-
-                if (ignoreParent)
-                {
-                    mappedParent = targetAvatar.transform;
-                }
-                else
-                {
-                    // Find nearest mapped parent
-                    var p = src.parent;
-                    while (p != null)
-                    {
-                        if (boneMap.TryGetValue(p, out var m))
-                        {
-                            mappedParent = m;
-                            break;
-                        }
-                        p = p.parent;
-                    }
-                }
-
-                // Fallback to root if still null
-                if (mappedParent == null) mappedParent = targetAvatar.transform;
-
-                // Check if it already exists by name under the mapped parent
-                var existing = mappedParent.Find(src.name);
-                if (existing != null)
-                {
-                    boneMap[src] = existing;
-                    return existing;
-                }
-
-                // Create new
-                var newObj = new GameObject(src.name);
-                newObj.transform.SetParent(mappedParent, false);
-                newObj.transform.localPosition = src.localPosition;
-                newObj.transform.localRotation = src.localRotation;
-                newObj.transform.localScale = src.localScale;
-                
-                boneMap[src] = newObj.transform;
-                return newObj.transform;
-            }
-
-            // MagicaCloth2
-            var magicaCloths = sourceRoot.GetComponentsInChildren<MagicaCloth2.MagicaCloth>(true);
-            foreach (var mc in magicaCloths)
-            {
-                // User requested to ignore parentage for MagicaCloth and put under Root
-                var dest = GetOrCreateDestination(mc.transform, true);
-                if (dest != null)
-                {
-                    var newMc = GetOrAddComponent<MagicaCloth2.MagicaCloth>(dest.gameObject);
-                    EditorUtility.CopySerialized(mc, newMc);
-                    
-                    // Remap References
-                    var so = new SerializedObject(newMc);
-                    
-                    // Root Bones (Transforms)
-                    var rootListProp = so.FindProperty("serializeData.rootBones");
-                    if (rootListProp != null) RemapTransformList(rootListProp, boneMap);
-                    else Log("Warning: Could not find 'serializeData.rootBones'.");
-
-                    // Colliders (Components)
-                    var colliderListProp = so.FindProperty("serializeData.colliderCollisionConstraint.colliderList");
-                    if (colliderListProp != null) RemapComponentList(colliderListProp, boneMap);
-                    else Log("Warning: Could not find 'serializeData.colliderCollisionConstraint.colliderList'.");
-
-                    // Source Renderers (Components)
-                    // Try common property names for renderers
-                    var rendererListProp = so.FindProperty("serializeData.sourceRenderers"); 
-                    if (rendererListProp != null) RemapComponentList(rendererListProp, boneMap);
-                    else 
-                    {
-                        // Fallback or log
-                        Log("Info: Could not find 'serializeData.sourceRenderers'. Checking for 'sourceRenderers'...");
-                        rendererListProp = so.FindProperty("sourceRenderers");
-                        if (rendererListProp != null) RemapComponentList(rendererListProp, boneMap);
-                    }
-
-                    so.ApplyModifiedProperties();
-                }
-                else
-                {
-                    Log($"Warning: Could not find a place to copy MagicaCloth from '{mc.name}'.");
-                }
-            }
-
-            // VRMSpringBone
-            var vrmSprings = sourceRoot.GetComponentsInChildren<VRM.VRMSpringBone>(true);
-            foreach (var vs in vrmSprings)
-            {
-                var dest = GetOrCreateDestination(vs.transform, false);
-                if (dest != null)
-                {
-                    var newVs = GetOrAddComponent<VRM.VRMSpringBone>(dest.gameObject);
-                    EditorUtility.CopySerialized(vs, newVs);
-
-                    newVs.RootBones = RemapList(vs.RootBones, boneMap);
-                    newVs.ColliderGroups = RemapColliderGroups(vs.ColliderGroups, boneMap);
-                }
-                else
-                {
-                    Log($"Warning: Could not find a place to copy VRMSpringBone from '{vs.name}'.");
-                }
-            }
-        }
-
-        // Helpers
-        private void CopyComponent<T>(Transform src, Transform dest) where T : Component
-        {
-            var comps = src.GetComponents<T>();
-            foreach (var comp in comps)
-            {
-                var newComp = GetOrAddComponent<T>(dest.gameObject);
-                EditorUtility.CopySerialized(comp, newComp);
-            }
-        }
-
-        private T GetOrAddComponent<T>(GameObject go) where T : Component
-        {
-            var comp = go.GetComponent<T>();
-            if (comp == null) comp = go.AddComponent<T>();
-            return comp;
-        }
-
-        private void RemapComponentList(SerializedProperty listProp, Dictionary<Transform, Transform> map)
-        {
-            if (listProp == null) return;
-
-            for (int i = listProp.arraySize - 1; i >= 0; i--)
-            {
-                var elem = listProp.GetArrayElementAtIndex(i);
-                var originalComp = elem.objectReferenceValue as Component;
-
-                if (originalComp == null) continue;
-
-                if (map.TryGetValue(originalComp.transform, out var mappedTransform))
-                {
-                    // Try to find the same component type on the mapped transform
-                    var newComp = mappedTransform.GetComponent(originalComp.GetType());
-                    if (newComp != null)
-                    {
-                        elem.objectReferenceValue = newComp;
-                    }
-                    else
-                    {
-                        Log($"Warning: Mapped transform '{mappedTransform.name}' does not have component '{originalComp.GetType().Name}'.");
-                        elem.objectReferenceValue = null;
-                    }
-                }
-                else
-                {
-                    Log($"Warning: Could not map transform for component '{originalComp.name}' ({originalComp.GetType().Name}).");
-                    elem.objectReferenceValue = null;
-                }
-            }
-        }
-
-        private void RemapTransformList(SerializedProperty listProp, Dictionary<Transform, Transform> map)
-        {
-            if (listProp == null) return;
-            
-            for (int i = listProp.arraySize - 1; i >= 0; i--)
-            {
-                var elem = listProp.GetArrayElementAtIndex(i);
-                var original = elem.objectReferenceValue as Transform;
-                
-                if (original == null) continue;
-
-                if (map.TryGetValue(original, out var mapped))
-                {
-                    elem.objectReferenceValue = mapped;
-                }
-                else
-                {
-                    // If not mapped, remove? Or keep null?
-                    // Keeping it might cause errors. Removing is safer for physics.
-                    // But let's warn.
-                    Log($"Warning: Could not map transform '{original.name}' in list.");
-                    elem.objectReferenceValue = null; 
-                }
-            }
-        }
-
-        private List<Transform> RemapList(List<Transform> sourceList, Dictionary<Transform, Transform> map)
-        {
-            var newList = new List<Transform>();
-            foreach (var t in sourceList)
-            {
-                if (t != null && map.TryGetValue(t, out var mapped))
-                {
-                    newList.Add(mapped);
-                }
-            }
-            return newList;
-        }
-
-        private VRM.VRMSpringBoneColliderGroup[] RemapColliderGroups(VRM.VRMSpringBoneColliderGroup[] sourceList, Dictionary<Transform, Transform> map)
-        {
-            var newList = new List<VRM.VRMSpringBoneColliderGroup>();
-            foreach (var c in sourceList)
-            {
-                if (c != null && map.TryGetValue(c.transform, out var mappedTransform))
-                {
-                    var mappedCollider = mappedTransform.GetComponent<VRM.VRMSpringBoneColliderGroup>();
-                    if (mappedCollider != null)
-                    {
-                        newList.Add(mappedCollider);
-                    }
-                }
-            }
-            return newList.ToArray();
-        }
+        // ------------------------------------------------------------
+        // Collider cleanup (selection-based utilities, UI 직속 편의기능)
+        // ------------------------------------------------------------
 
         private List<GameObject> FindColliderObjects(GameObject root)
         {
@@ -859,49 +481,14 @@ namespace YAMO.UnityTools.Editor
             Log($"삭제: {deletedCount}개 오브젝트 / 컴포넌트만 제거: {strippedCount}개 (본 보호)");
         }
 
+        // ------------------------------------------------------------
+        // BlendShape (UI 진입점 — 코어 호출)
+        // ------------------------------------------------------------
+
         private void MigrateBlendShapes()
         {
             Log("Starting BlendShape migration...");
-            var sourceRenderers = sourceAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-            var targetRenderers = targetAvatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-            var targetDict = targetRenderers.ToDictionary(r => r.name, r => r);
-
-            int migratedCount = 0;
-
-            foreach (var sourceSMR in sourceRenderers)
-            {
-                if (targetDict.TryGetValue(sourceSMR.name, out var targetSMR))
-                {
-                    var sourceMesh = sourceSMR.sharedMesh;
-                    var targetMesh = targetSMR.sharedMesh;
-
-                    if (sourceMesh == null || targetMesh == null) continue;
-
-                    int shapeCount = sourceMesh.blendShapeCount;
-                    bool anyChanged = false;
-
-                    for (int i = 0; i < shapeCount; i++)
-                    {
-                        string shapeName = sourceMesh.GetBlendShapeName(i);
-                        float weight = sourceSMR.GetBlendShapeWeight(i);
-
-                        // Find index in target
-                        int targetIndex = targetMesh.GetBlendShapeIndex(shapeName);
-                        if (targetIndex != -1)
-                        {
-                            targetSMR.SetBlendShapeWeight(targetIndex, weight);
-                            anyChanged = true;
-                        }
-                    }
-
-                    if (anyChanged)
-                    {
-                        migratedCount++;
-                    }
-                }
-            }
-
-            Log($"BlendShape migration completed. Updated {migratedCount} SkinnedMeshRenderers.");
+            AvatarMigrationCore.MigrateBlendShapes(sourceAvatar, targetAvatar, new WindowLog(this));
         }
 
         private void ResetBlendShapes()
@@ -919,7 +506,7 @@ namespace YAMO.UnityTools.Editor
             foreach (var smr in renderers)
             {
                 if (smr.sharedMesh == null) continue;
-                
+
                 int count = smr.sharedMesh.blendShapeCount;
                 if (count > 0)
                 {
