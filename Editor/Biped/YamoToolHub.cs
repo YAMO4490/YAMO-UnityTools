@@ -10,9 +10,16 @@
 //
 // 의존:
 //   - AvatarBakePrefabWindow (같은 폴더)
+//   - BipedConverterWindow (Editor/BipedConverter/) — Avatar Bake 탭의 두번째 파트로 임베드
 //   - MaterialAndTextureCollectorWindow (Editor/Assets/)
 //   - YamoAssetChecker (Editor/Bones/)
 //   - FacialAnimationBaker, ForearmHingeBaker, AnimClipReducerWindow (Editor/Animation/)
+//
+// 탭 구성 (총 4개):
+//   1. Avatar Bake & Prefab — 두 파트 (Avatar Bake / Biped Converter) 폴드아웃
+//   2. Material & Texture
+//   3. Asset Checker
+//   4. Animation
 
 using UnityEditor;
 using UnityEditor.ShortcutManagement;
@@ -40,8 +47,15 @@ namespace YAMO.UnityTools.Editor
 
         [SerializeField] private Tab _activeTab = Tab.AvatarBakePrefab;
 
+        // Avatar Bake & Prefab 탭 내부의 두 파트별 폴드아웃 상태.
+        [SerializeField] private bool _bakePrefabPartFoldout      = true;
+        [SerializeField] private bool _bipedConverterPartFoldout  = true;
+        private Vector2 _avatarBakeTabScroll;
+
         // 탭별 도구 인스턴스. 허브가 살아 있는 동안 상태를 유지.
+        // BipedConverter 는 별도 탭이 아니라 AvatarBakePrefab 탭의 두번째 파트에 노출.
         private AvatarBakePrefabWindow            _bakePrefabInstance;
+        private BipedConverterWindow              _bipedConverterInstance;
         private MaterialAndTextureCollectorWindow _materialTextureInstance;
         private YamoAssetChecker                  _assetCheckerInstance;
 
@@ -77,6 +91,8 @@ namespace YAMO.UnityTools.Editor
         {
             if (_bakePrefabInstance == null)
                 _bakePrefabInstance = ScriptableObject.CreateInstance<AvatarBakePrefabWindow>();
+            if (_bipedConverterInstance == null)
+                _bipedConverterInstance = ScriptableObject.CreateInstance<BipedConverterWindow>();
             if (_materialTextureInstance == null)
                 _materialTextureInstance = ScriptableObject.CreateInstance<MaterialAndTextureCollectorWindow>();
             if (_assetCheckerInstance == null)
@@ -86,6 +102,7 @@ namespace YAMO.UnityTools.Editor
         private void OnDisable()
         {
             if (_bakePrefabInstance != null)      DestroyImmediate(_bakePrefabInstance);
+            if (_bipedConverterInstance != null)  DestroyImmediate(_bipedConverterInstance);
             if (_materialTextureInstance != null) DestroyImmediate(_materialTextureInstance);
             if (_assetCheckerInstance != null)    DestroyImmediate(_assetCheckerInstance);
         }
@@ -106,7 +123,7 @@ namespace YAMO.UnityTools.Editor
             switch (_activeTab)
             {
                 case Tab.AvatarBakePrefab:
-                    if (_bakePrefabInstance != null) _bakePrefabInstance.DrawGUI();
+                    DrawAvatarBakeTab();
                     break;
                 case Tab.MaterialAndTexture:
                     if (_materialTextureInstance != null) _materialTextureInstance.DrawGUI();
@@ -118,6 +135,46 @@ namespace YAMO.UnityTools.Editor
                     DrawAnimationTab();
                     break;
             }
+        }
+
+        // ============================================================
+        // Avatar Bake & Prefab tab — 두 파트 구성
+        //   1. Avatar Bake & Prefab (원본 풀 파이프라인)
+        //   2. Biped Converter (Humanoid → 3ds Max Biped 본 변환)
+        // ============================================================
+        private void DrawAvatarBakeTab()
+        {
+            _avatarBakeTabScroll = EditorGUILayout.BeginScrollView(_avatarBakeTabScroll);
+
+            _bakePrefabPartFoldout = EditorGUILayout.Foldout(
+                _bakePrefabPartFoldout,
+                "1. Avatar Bake & Prefab",
+                toggleOnLabelClick: true,
+                EditorStyles.foldoutHeader);
+            if (_bakePrefabPartFoldout)
+            {
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                {
+                    if (_bakePrefabInstance != null) _bakePrefabInstance.DrawGUI();
+                }
+            }
+
+            EditorGUILayout.Space(8);
+
+            _bipedConverterPartFoldout = EditorGUILayout.Foldout(
+                _bipedConverterPartFoldout,
+                "2. Biped Converter",
+                toggleOnLabelClick: true,
+                EditorStyles.foldoutHeader);
+            if (_bipedConverterPartFoldout)
+            {
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                {
+                    if (_bipedConverterInstance != null) _bipedConverterInstance.DrawGUI();
+                }
+            }
+
+            EditorGUILayout.EndScrollView();
         }
 
         // ============================================================

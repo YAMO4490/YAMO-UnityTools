@@ -6,6 +6,7 @@
 //   3) Unused Bones             — 사용되지 않는 본 검출 (선택 객체 하위)
 //   4) Missing / Disabled Scripts — 미싱·비활성 MonoBehaviour 정리
 //   5) Missing Bones            — SkinnedMeshRenderer.bones 의 null 검사
+//   6) Humanoid Bone Extractor  — 아바타 복제 후 휴머노이드 본만 남겨 스켈레톤 추출
 //
 // 코어 로직은 YamoAssetCheckerCore.cs 의 정적 메서드를 호출.
 // 이 파일은 UI / 상태 관리 / 결과 표시만 담당.
@@ -22,11 +23,12 @@ namespace YAMO.UnityTools.Editor
         private Vector2 _windowScroll;
 
         // ---- 섹션 폴드아웃 상태 ----
-        private bool _foldNameTools     = true;
-        private bool _foldDuplicates    = true;
-        private bool _foldUnusedBones   = true;
-        private bool _foldMissingScripts = true;
-        private bool _foldMissingBones  = true;
+        private bool _foldNameTools         = true;
+        private bool _foldDuplicates        = true;
+        private bool _foldUnusedBones       = true;
+        private bool _foldMissingScripts    = true;
+        private bool _foldMissingBones      = true;
+        private bool _foldHumanoidExtractor = true;
 
         // ---- 섹션 1: Object Name Tools ----
         private string _prefixText = "";
@@ -54,6 +56,10 @@ namespace YAMO.UnityTools.Editor
         private Vector2 _missingBoneScroll;
         private bool _missingBoneSearched = false;
 
+        // ---- 섹션 6: Humanoid Bone Extractor ----
+        // EditorWindow 인스턴스를 임베드해 자체 상태(소스/매핑)를 보유.
+        private HumanoidBoneExtractorWindow _humanoidExtractorInstance;
+
         [MenuItem("Tools/YAMO/Bones/YAMO Asset Checker")]
         public static void ShowWindow()
         {
@@ -61,6 +67,17 @@ namespace YAMO.UnityTools.Editor
                 GetWindow<YamoAssetChecker>().Close();
             else
                 GetWindow<YamoAssetChecker>("YAMO Asset Checker");
+        }
+
+        private void OnEnable()
+        {
+            if (_humanoidExtractorInstance == null)
+                _humanoidExtractorInstance = ScriptableObject.CreateInstance<HumanoidBoneExtractorWindow>();
+        }
+
+        private void OnDisable()
+        {
+            if (_humanoidExtractorInstance != null) DestroyImmediate(_humanoidExtractorInstance);
         }
 
         private void OnGUI() => DrawGUI();
@@ -82,6 +99,7 @@ namespace YAMO.UnityTools.Editor
             DrawUnusedBonesSection();
             DrawMissingScriptsSection();
             DrawMissingBonesSection();
+            DrawHumanoidExtractorSection();
 
             EditorGUILayout.EndScrollView();
         }
@@ -391,6 +409,21 @@ namespace YAMO.UnityTools.Editor
                     EditorGUILayout.EndScrollView();
                 }
             }
+            EditorGUI.indentLevel--;
+        }
+
+        // ============================================================
+        // 섹션 6: Humanoid Bone Extractor
+        // ============================================================
+        private void DrawHumanoidExtractorSection()
+        {
+            DrawSeparator();
+            _foldHumanoidExtractor = EditorGUILayout.Foldout(_foldHumanoidExtractor, "6. Humanoid Bone Extractor", true, EditorStyles.foldoutHeader);
+            if (!_foldHumanoidExtractor) return;
+
+            EditorGUI.indentLevel++;
+            if (_humanoidExtractorInstance != null)
+                _humanoidExtractorInstance.DrawGUI();
             EditorGUI.indentLevel--;
         }
 

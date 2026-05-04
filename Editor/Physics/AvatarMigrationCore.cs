@@ -43,6 +43,86 @@ namespace YAMO.UnityTools.Editor
     }
 
     /// <summary>
+    /// inner 로그에 그대로 위임하면서 파일로도 함께 기록하는 데코레이터.
+    /// 파일 IO 오류는 내부에서 swallow 하여 로깅이 파이프라인을 깨뜨리지 않도록 한다.
+    /// 사용 후 Dispose() 로 닫아 디스크에 flush.
+    /// </summary>
+    public sealed class TeeMigrationLog : IMigrationLog, System.IDisposable
+    {
+        private readonly IMigrationLog _inner;
+        private System.IO.StreamWriter _writer;
+        private readonly object _lock = new object();
+        public string FilePath { get; }
+
+        public TeeMigrationLog(IMigrationLog inner, string filePath)
+        {
+            _inner = inner;
+            FilePath = filePath;
+            try
+            {
+                var dir = System.IO.Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(dir) && !System.IO.Directory.Exists(dir))
+                {
+                    System.IO.Directory.CreateDirectory(dir);
+                }
+                _writer = new System.IO.StreamWriter(filePath, append: false, encoding: System.Text.Encoding.UTF8)
+                {
+                    AutoFlush = true
+                };
+                _writer.WriteLine($"# YAMO Avatar Bake & Prefab Pipeline log — {System.DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            }
+            catch (System.Exception e)
+            {
+                _inner.Warning($"[TeeLog] Failed to open log file '{filePath}': {e.Message}");
+                _writer = null;
+            }
+        }
+
+        public void Info(string message)
+        {
+            _inner.Info(message);
+            WriteLine("[INFO] ", message);
+        }
+        public void Warning(string message)
+        {
+            _inner.Warning(message);
+            WriteLine("[WARN] ", message);
+        }
+        public void Error(string message)
+        {
+            _inner.Error(message);
+            WriteLine("[ERR ] ", message);
+        }
+
+        private void WriteLine(string level, string message)
+        {
+            if (_writer == null) return;
+            lock (_lock)
+            {
+                try
+                {
+                    _writer.Write(level);
+                    _writer.WriteLine(message);
+                }
+                catch { /* swallow IO errors */ }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_lock)
+            {
+                if (_writer != null)
+                {
+                    try { _writer.Flush(); _writer.Dispose(); }
+                    catch { }
+                    _writer = null;
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// 아바타 간 물리/콜라이더/블렌드셰이프 마이그레이션의 정적 코어.
     /// 모든 메서드는 Source/Target GameObject를 인자로 받으며,
     /// 외부 상태(EditorWindow 필드 등)에 의존하지 않습니다.

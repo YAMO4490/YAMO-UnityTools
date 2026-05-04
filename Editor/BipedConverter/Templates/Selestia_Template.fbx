@@ -1,0 +1,1887 @@
+; FBX 7.7.0 project file
+; ----------------------------------------------------
+
+FBXHeaderExtension:  {
+	FBXHeaderVersion: 1004
+	FBXVersion: 7700
+	CreationTimeStamp:  {
+		Version: 1000
+		Year: 2026
+		Month: 5
+		Day: 4
+		Hour: 12
+		Minute: 37
+		Second: 1
+		Millisecond: 326
+	}
+	Creator: "FBX SDK/FBX Plugins version 2020.3.1"
+	OtherFlags:  {
+		TCDefinition: 127
+	}
+	SceneInfo: "SceneInfo::GlobalInfo", "UserData" {
+		Type: "UserData"
+		Version: 100
+		MetaData:  {
+			Version: 100
+			Title: ""
+			Subject: ""
+			Author: ""
+			Keywords: ""
+			Revision: ""
+			Comment: ""
+		}
+		Properties70:  {
+			P: "DocumentUrl", "KString", "Url", "", "H:\Main\04_Projects\Unity\WarudoSDK-Nilotoon-Incoming\Assets\Editor\BipedConverter\Templates\Selestia_Template.fbx"
+			P: "SrcDocumentUrl", "KString", "Url", "", "H:\Main\04_Projects\Unity\WarudoSDK-Nilotoon-Incoming\Assets\Editor\BipedConverter\Templates\Selestia_Template.fbx"
+			P: "Original", "Compound", "", ""
+			P: "Original|ApplicationVendor", "KString", "", "", "Autodesk"
+			P: "Original|ApplicationName", "KString", "", "", "3ds Max"
+			P: "Original|ApplicationVersion", "KString", "", "", "2021"
+			P: "Original|DateTime_GMT", "DateTime", "", "", "04/05/2026 03:37:01.326"
+			P: "Original|FileName", "KString", "", "", "H:\Main\04_Projects\Unity\WarudoSDK-Nilotoon-Incoming\Assets\Editor\BipedConverter\Templates\Selestia_Template.fbx"
+			P: "LastSaved", "Compound", "", ""
+			P: "LastSaved|ApplicationVendor", "KString", "", "", "Autodesk"
+			P: "LastSaved|ApplicationName", "KString", "", "", "3ds Max"
+			P: "LastSaved|ApplicationVersion", "KString", "", "", "2021"
+			P: "LastSaved|DateTime_GMT", "DateTime", "", "", "04/05/2026 03:37:01.326"
+			P: "Original|ApplicationActiveProject", "KString", "", "", "C:\Users\lksm8\Documents\3ds Max 2021"
+		}
+	}
+}
+GlobalSettings:  {
+	Version: 1000
+	Properties70:  {
+		P: "UpAxis", "int", "Integer", "",1
+		P: "UpAxisSign", "int", "Integer", "",1
+		P: "FrontAxis", "int", "Integer", "",2
+		P: "FrontAxisSign", "int", "Integer", "",1
+		P: "CoordAxis", "int", "Integer", "",0
+		P: "CoordAxisSign", "int", "Integer", "",1
+		P: "OriginalUpAxis", "int", "Integer", "",2
+		P: "OriginalUpAxisSign", "int", "Integer", "",1
+		P: "UnitScaleFactor", "double", "Number", "",1
+		P: "OriginalUnitScaleFactor", "double", "Number", "",1
+		P: "AmbientColor", "ColorRGB", "Color", "",0,0,0
+		P: "DefaultCamera", "KString", "", "", "Producer Front"
+		P: "TimeMode", "enum", "", "",6
+		P: "TimeProtocol", "enum", "", "",2
+		P: "SnapOnFrameMode", "enum", "", "",0
+		P: "TimeSpanStart", "KTime", "Time", "",0
+		P: "TimeSpanStop", "KTime", "Time", "",153953860000
+		P: "CustomFrameRate", "double", "Number", "",-1
+		P: "TimeMarker", "Compound", "", ""
+		P: "CurrentTimeMarker", "int", "Integer", "",-1
+	}
+}
+
+; Documents Description
+;------------------------------------------------------------------
+
+Documents:  {
+	Count: 1
+	Document: 2079203091584, "", "Scene" {
+		Properties70:  {
+			P: "SourceObject", "object", "", ""
+			P: "ActiveAnimStackName", "KString", "", "", ""
+		}
+		RootNode: 0
+	}
+}
+
+; Document References
+;------------------------------------------------------------------
+
+References:  {
+}
+
+; Object definitions
+;------------------------------------------------------------------
+
+Definitions:  {
+	Version: 100
+	Count: 132
+	ObjectType: "GlobalSettings" {
+		Count: 1
+	}
+	ObjectType: "Model" {
+		Count: 66
+		PropertyTemplate: "FbxNode" {
+			Properties70:  {
+				P: "QuaternionInterpolate", "enum", "", "",0
+				P: "RotationOffset", "Vector3D", "Vector", "",0,0,0
+				P: "RotationPivot", "Vector3D", "Vector", "",0,0,0
+				P: "ScalingOffset", "Vector3D", "Vector", "",0,0,0
+				P: "ScalingPivot", "Vector3D", "Vector", "",0,0,0
+				P: "TranslationActive", "bool", "", "",0
+				P: "TranslationMin", "Vector3D", "Vector", "",0,0,0
+				P: "TranslationMax", "Vector3D", "Vector", "",0,0,0
+				P: "TranslationMinX", "bool", "", "",0
+				P: "TranslationMinY", "bool", "", "",0
+				P: "TranslationMinZ", "bool", "", "",0
+				P: "TranslationMaxX", "bool", "", "",0
+				P: "TranslationMaxY", "bool", "", "",0
+				P: "TranslationMaxZ", "bool", "", "",0
+				P: "RotationOrder", "enum", "", "",0
+				P: "RotationSpaceForLimitOnly", "bool", "", "",0
+				P: "RotationStiffnessX", "double", "Number", "",0
+				P: "RotationStiffnessY", "double", "Number", "",0
+				P: "RotationStiffnessZ", "double", "Number", "",0
+				P: "AxisLen", "double", "Number", "",10
+				P: "PreRotation", "Vector3D", "Vector", "",0,0,0
+				P: "PostRotation", "Vector3D", "Vector", "",0,0,0
+				P: "RotationActive", "bool", "", "",0
+				P: "RotationMin", "Vector3D", "Vector", "",0,0,0
+				P: "RotationMax", "Vector3D", "Vector", "",0,0,0
+				P: "RotationMinX", "bool", "", "",0
+				P: "RotationMinY", "bool", "", "",0
+				P: "RotationMinZ", "bool", "", "",0
+				P: "RotationMaxX", "bool", "", "",0
+				P: "RotationMaxY", "bool", "", "",0
+				P: "RotationMaxZ", "bool", "", "",0
+				P: "InheritType", "enum", "", "",0
+				P: "ScalingActive", "bool", "", "",0
+				P: "ScalingMin", "Vector3D", "Vector", "",0,0,0
+				P: "ScalingMax", "Vector3D", "Vector", "",1,1,1
+				P: "ScalingMinX", "bool", "", "",0
+				P: "ScalingMinY", "bool", "", "",0
+				P: "ScalingMinZ", "bool", "", "",0
+				P: "ScalingMaxX", "bool", "", "",0
+				P: "ScalingMaxY", "bool", "", "",0
+				P: "ScalingMaxZ", "bool", "", "",0
+				P: "GeometricTranslation", "Vector3D", "Vector", "",0,0,0
+				P: "GeometricRotation", "Vector3D", "Vector", "",0,0,0
+				P: "GeometricScaling", "Vector3D", "Vector", "",1,1,1
+				P: "MinDampRangeX", "double", "Number", "",0
+				P: "MinDampRangeY", "double", "Number", "",0
+				P: "MinDampRangeZ", "double", "Number", "",0
+				P: "MaxDampRangeX", "double", "Number", "",0
+				P: "MaxDampRangeY", "double", "Number", "",0
+				P: "MaxDampRangeZ", "double", "Number", "",0
+				P: "MinDampStrengthX", "double", "Number", "",0
+				P: "MinDampStrengthY", "double", "Number", "",0
+				P: "MinDampStrengthZ", "double", "Number", "",0
+				P: "MaxDampStrengthX", "double", "Number", "",0
+				P: "MaxDampStrengthY", "double", "Number", "",0
+				P: "MaxDampStrengthZ", "double", "Number", "",0
+				P: "PreferedAngleX", "double", "Number", "",0
+				P: "PreferedAngleY", "double", "Number", "",0
+				P: "PreferedAngleZ", "double", "Number", "",0
+				P: "LookAtProperty", "object", "", ""
+				P: "UpVectorProperty", "object", "", ""
+				P: "Show", "bool", "", "",1
+				P: "NegativePercentShapeSupport", "bool", "", "",1
+				P: "DefaultAttributeIndex", "int", "Integer", "",-1
+				P: "Freeze", "bool", "", "",0
+				P: "LODBox", "bool", "", "",0
+				P: "Lcl Translation", "Lcl Translation", "", "A",0,0,0
+				P: "Lcl Rotation", "Lcl Rotation", "", "A",0,0,0
+				P: "Lcl Scaling", "Lcl Scaling", "", "A",1,1,1
+				P: "Visibility", "Visibility", "", "A",1
+				P: "Visibility Inheritance", "Visibility Inheritance", "", "",1
+			}
+		}
+	}
+	ObjectType: "NodeAttribute" {
+		Count: 65
+		PropertyTemplate: "FbxSkeleton" {
+			Properties70:  {
+				P: "Color", "ColorRGB", "Color", "",0.8,0.8,0.8
+				P: "Size", "double", "Number", "",100
+				P: "LimbLength", "double", "Number", "H",1
+			}
+		}
+	}
+}
+
+; Object properties
+;------------------------------------------------------------------
+
+Objects:  {
+	NodeAttribute: 2079764056352, "NodeAttribute::", "Root" {
+		TypeFlags: "Null", "Skeleton", "Root"
+	}
+	NodeAttribute: 2079764056736, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",82.258171081543
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764050976, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",58.5324277877808
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764055200, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",111.999018669128
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764050208, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",37.9877486228943
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764057120, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",140.277336120605
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764054240, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",140.277336120605
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764050400, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",26.155291557312
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764053280, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",139.633422851563
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764051936, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",134.284154891968
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764052320, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",18.9261391162872
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764057312, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",16.2699501514435
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764050592, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",14.0567719936371
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764052128, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",15.5091600418091
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764050784, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",15.5091600418091
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764051168, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",13.8883894681931
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764051360, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.1118952035904
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764056160, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",10.7162733078003
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764055584, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",10.7162733078003
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764054432, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",17.0694327354431
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764052512, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.2612677812576
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764051552, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.2099673748016
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764054624, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.2099673748016
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764052704, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",15.6903190612793
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764055776, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",11.3462309837341
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764053472, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.7136554718018
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764053664, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.7136554718018
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764054816, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",11.8359476327896
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764056544, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",9.33598387241364
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764053856, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",8.42086446285248
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764055008, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",8.42086446285248
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079764056928, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",26.155291557312
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220494832, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",139.633422851563
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220496752, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",134.284141540527
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220496944, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",18.9261441230774
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220495600, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",16.2699484825134
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220493488, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",14.0567886829376
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220496560, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",15.5091533660889
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220494448, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",15.5091533660889
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220496176, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",13.888388633728
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220495024, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.1118952035904
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220493872, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",10.7162724733353
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220494064, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",10.7162724733353
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220494256, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",17.0694310665131
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220495792, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.2612669467926
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220494640, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.2099665403366
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220496368, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.2099665403366
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079220493296, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",15.6903207302094
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2067955793216, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",11.3462318181992
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2067955791104, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.7136563062668
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079175337680, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",12.7136563062668
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2067871804464, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",11.8359493017197
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2079166985216, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",9.33595883846283
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2069737026256, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",8.42086613178253
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001976720, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",8.42086613178253
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001975376, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",212.052236557007
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001971728, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",225.074310302734
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001973264, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",77.6924591064453
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001973456, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",45.6497030258179
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001978064, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",45.6497030258179
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001972112, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",212.052236557007
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001976144, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",225.074310302734
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001979216, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",77.6924591064453
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001979408, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",45.6497030258179
+		}
+		TypeFlags: "Skeleton"
+	}
+	NodeAttribute: 2080001975760, "NodeAttribute::", "LimbNode" {
+		Properties70:  {
+			P: "Size", "double", "Number", "",45.6497030258179
+		}
+		TypeFlags: "Skeleton"
+	}
+	Model: 2069356499376, "Model::Bip001", "Root" {
+		Version: 232
+		Properties70:  {
+			P: "PreRotation", "Vector3D", "Vector", "",-90,-0,0
+			P: "RotationActive", "bool", "", "",1
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",0,71.2996444702148,2.08796000480652
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-0,-89.9999214528245
+			P: "MaxHandle", "int", "Integer", "UH",1
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356494992, "Model::Bip001 Footsteps", "Null" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Freeze", "bool", "", "",1
+			P: "Lcl Translation", "Lcl Translation", "", "A",0,0,-69.1763763427734
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-0,89.9999214528245
+			P: "MaxHandle", "int", "Integer", "UH",31
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356508144, "Model::Bip001 Pelvis", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-89.9999205421987,-89.9999205422052,0
+			P: "MaxHandle", "int", "Integer", "UH",2
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356512528, "Model::Bip001 Spine", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",11.692741394043,1.17035841941833,1.25924416352063e-05
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0.000238436609156336,-7.93944924378317e-05,0.0456256642740537
+			P: "MaxHandle", "int", "Integer", "UH",3
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356514720, "Model::Bip001 Spine1", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",8.36175537109375,-0.0151889324188232,-4.21282493334729e-08
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-3.45121864245189e-12,1.27222187258541e-14,0
+			P: "MaxHandle", "int", "Integer", "UH",4
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356505952, "Model::Bip001 Neck", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",15.684700012207,-3.16006422042847,-4.7647545216023e-06
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-3.45121864245189e-12,1.27222187258541e-14,0
+			P: "MaxHandle", "int", "Integer", "UH",22
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356510336, "Model::Bip001 Head", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",5.41869354248047,0.296868115663528,8.23393463633693e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-5.22801677406174e-11,1.26540401012495e-07,-0.0457026172680825
+			P: "MaxHandle", "int", "Integer", "UH",21
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356501568, "Model::Bip001 HeadNub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",20.0396194458008,0,2.8421709430404e-14
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-4.71828401273877e-18,-0,0
+			P: "MaxHandle", "int", "Integer", "UH",36
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356503760, "Model::Bip001 L Clavicle", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",13.5674667358398,-3.86874008178711,4.19657135009766
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",179.954374335726,-89.9998410666825,0
+			P: "MaxHandle", "int", "Integer", "UH",13
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356519104, "Model::Bip001 L UpperArm", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",3.73647022247314,1.78813934326172e-07,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",5.00895613097532e-06,-2.50447806548766e-06,-1.6204767295303e-27
+			P: "MaxHandle", "int", "Integer", "UH",14
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356523488, "Model::Bip001 L Forearm", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "RotationActive", "bool", "", "",1
+			P: "RotationMinX", "bool", "", "",1
+			P: "RotationMinY", "bool", "", "",1
+			P: "RotationMaxX", "bool", "", "",1
+			P: "RotationMaxY", "bool", "", "",1
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",19.9476318359375,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-1.27222179161383e-14,-1.49999145870968
+			P: "MaxHandle", "int", "Integer", "UH",15
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356516912, "Model::Bip001 L Hand", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",19.1834487915039,-1.19209289550781e-07,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-89.9999728892075,0.00116991054052523,1.5000464015495
+			P: "MaxHandle", "int", "Integer", "UH",16
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356521296, "Model::Bip001 L Finger0", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.98218536376953,0.62744140625,-1.72842025756836
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",95.1504419879141,35.1791993730507,5.61693567434909
+			P: "Lcl Scaling", "Lcl Scaling", "", "A",1,1,0.999999
+			P: "MaxHandle", "int", "Integer", "UH",23
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539900368, "Model::Bip001 L Finger01", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.32427597045898,0,7.62939453125e-06
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0.204371961000961,1.79812135353614,7.98818482642358
+			P: "MaxHandle", "int", "Integer", "UH",37
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539913520, "Model::Bip001 L Finger02", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.00811004638672,0,7.62939453125e-06
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",2.13443386118464e-07,-0,1.94767113051145e-06
+			P: "MaxHandle", "int", "Integer", "UH",38
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539904752, "Model::Bip001 L Finger0Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.2155876159668,0,-7.62939453125e-06
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",2.13443386118464e-07,-0,1.94767113051145e-06
+			P: "MaxHandle", "int", "Integer", "UH",33
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539909136, "Model::Bip001 L Finger1", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",6.31333160400391,-0.281806945800781,-1.70136308670044
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0.0456273904174364,-0.780564434517452,0.000621581978444802
+			P: "MaxHandle", "int", "Integer", "UH",40
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539902560, "Model::Bip001 L Finger11", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.98405456542969,-7.62939453125e-06,-2.38418579101563e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,1.63386875097402e-08,-2.08440831604393e-10
+			P: "MaxHandle", "int", "Integer", "UH",41
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539920096, "Model::Bip001 L Finger12", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.73027420043945,0,2.38418579101563e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,1.63386875097402e-08,-2.08440831604393e-10
+			P: "MaxHandle", "int", "Integer", "UH",42
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539917904, "Model::Bip001 L Finger1Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.5308952331543,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,1.63386875097402e-08,-2.08440831604393e-10
+			P: "MaxHandle", "int", "Integer", "UH",39
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539906944, "Model::Bip001 L Finger2", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",6.36479187011719,-0.374244689941406,-0.473281055688858
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0.0456271255017734,-0.755753021474848,0.000601821678338586
+			P: "MaxHandle", "int", "Integer", "UH",44
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539915712, "Model::Bip001 L Finger21", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.43849182128906,0,-1.19209289550781e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-2.13501221324789e-08,0
+			P: "MaxHandle", "int", "Integer", "UH",45
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539911328, "Model::Bip001 L Finger22", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.75160980224609,0,1.19209289550781e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-2.13501221324789e-08,0
+			P: "MaxHandle", "int", "Integer", "UH",46
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539922288, "Model::Bip001 L Finger2Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.74428176879883,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-2.13501221324789e-08,0
+			P: "MaxHandle", "int", "Integer", "UH",43
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539924480, "Model::Bip001 L Finger3", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",6.22515106201172,-0.323745727539063,0.90974885225296
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0.0456372972064089,1.42635357476223,-0.00113600378739773
+			P: "MaxHandle", "int", "Integer", "UH",48
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539926672, "Model::Bip001 L Finger31", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.24147415161133,0,4.76837158203125e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",3.33505330567029e-09,-2.76170233540899e-08,1.07477290983724e-10
+			P: "MaxHandle", "int", "Integer", "UH",49
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2081539928864, "Model::Bip001 L Finger32", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.62089157104492,0,-2.38418579101563e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",3.33505330567029e-09,-2.76170233540899e-08,1.07477290983724e-10
+			P: "MaxHandle", "int", "Integer", "UH",50
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222927648, "Model::Bip001 L Finger3Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.81623458862305,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",3.33505330567029e-09,-2.76170233540899e-08,1.07477290983724e-10
+			P: "MaxHandle", "int", "Integer", "UH",47
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222932032, "Model::Bip001 L Finger4", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",5.96633148193359,0.0884628295898438,2.18220138549805
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0.0455103061794702,2.78395853665891,0.000307673715828182
+			P: "MaxHandle", "int", "Integer", "UH",52
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222934224, "Model::Bip001 L Finger41", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.69084548950195,-7.62939453125e-06,4.76837158203125e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,1.0613108949932e-07,-4.16881663208786e-10
+			P: "MaxHandle", "int", "Integer", "UH",53
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222936416, "Model::Bip001 L Finger42", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.33371353149414,7.62939453125e-06,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,1.0613108949932e-07,-4.16881663208786e-10
+			P: "MaxHandle", "int", "Integer", "UH",54
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222938608, "Model::Bip001 L Finger4Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.20298004150391,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,1.0613108949932e-07,-4.16881663208786e-10
+			P: "MaxHandle", "int", "Integer", "UH",51
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222929840, "Model::Bip001 R Clavicle", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",13.5674667358398,-3.86871695518494,-4.19659233093262
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-179.954374335726,89.9998410626966,0
+			P: "MaxHandle", "int", "Integer", "UH",17
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222925456, "Model::Bip001 R UpperArm", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",3.73647022247314,-1.78813934326172e-07,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-5.00895613097532e-06,2.50447806548766e-06,-1.61991843935088e-27
+			P: "MaxHandle", "int", "Integer", "UH",18
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222947376, "Model::Bip001 R Forearm", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "RotationActive", "bool", "", "",1
+			P: "RotationMinX", "bool", "", "",1
+			P: "RotationMinY", "bool", "", "",1
+			P: "RotationMaxX", "bool", "", "",1
+			P: "RotationMaxY", "bool", "", "",1
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",19.9476318359375,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-0,-1.49999145870968
+			P: "MaxHandle", "int", "Integer", "UH",19
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222940800, "Model::Bip001 R Hand", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",19.1834449768066,-1.19209289550781e-07,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",89.999972889201,-0.00116991061029047,1.50004638426389
+			P: "MaxHandle", "int", "Integer", "UH",20
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222942992, "Model::Bip001 R Finger0", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.98218536376953,0.62744140625,1.72842037677765
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-95.1504416852217,-35.1791993730507,5.61693567434909
+			P: "Lcl Scaling", "Lcl Scaling", "", "A",1,1,0.999999
+			P: "MaxHandle", "int", "Integer", "UH",24
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222951760, "Model::Bip001 R Finger01", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.32427597045898,0,-7.62939453125e-06
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0.204371321682269,-1.79812136098201,7.98818313461195
+			P: "MaxHandle", "int", "Integer", "UH",55
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222949568, "Model::Bip001 R Finger02", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.00811386108398,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,4.26886772236928e-07,-1.41406243303482e-06
+			P: "MaxHandle", "int", "Integer", "UH",56
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222945184, "Model::Bip001 R Finger0Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.21559143066406,0,7.62939453125e-06
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0,-4.26886772236928e-07,179.999998585938
+			P: "Lcl Scaling", "Lcl Scaling", "", "A",-1,-1,-1
+			P: "MaxHandle", "int", "Integer", "UH",32
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069222953952, "Model::Bip001 R Finger1", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",6.31333160400391,-0.281806945800781,1.70136320590973
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0.0456273937517106,0.780564487873363,0.000621581769984588
+			P: "MaxHandle", "int", "Integer", "UH",58
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280635136, "Model::Bip001 R Finger11", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.98405838012695,-7.62939453125e-06,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-1.63386875097402e-08,-2.08440831604393e-10
+			P: "MaxHandle", "int", "Integer", "UH",59
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280626368, "Model::Bip001 R Finger12", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.73027038574219,0,2.38418579101563e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-1.63386875097402e-08,-2.08440831604393e-10
+			P: "MaxHandle", "int", "Integer", "UH",60
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280632944, "Model::Bip001 R Finger1Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.53089904785156,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0,1.63386875097402e-08,179.999999999792
+			P: "Lcl Scaling", "Lcl Scaling", "", "A",-1,-1,-1
+			P: "MaxHandle", "int", "Integer", "UH",57
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280637328, "Model::Bip001 R Finger2", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",6.36479187011719,-0.374244689941406,0.473281145095825
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0.0456271288360782,0.75575307483106,0.000601821886797558
+			P: "MaxHandle", "int", "Integer", "UH",62
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280628560, "Model::Bip001 R Finger21", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.43849182128906,0,1.19209289550781e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,2.13502239102287e-08,0
+			P: "MaxHandle", "int", "Integer", "UH",63
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280624176, "Model::Bip001 R Finger22", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.75160980224609,0,-1.19209289550781e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,2.13502239102287e-08,0
+			P: "MaxHandle", "int", "Integer", "UH",64
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280643904, "Model::Bip001 R Finger2Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.74427795410156,0,1.19209289550781e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0,-2.13502239102287e-08,-180
+			P: "Lcl Scaling", "Lcl Scaling", "", "A",-1,-1,-1
+			P: "MaxHandle", "int", "Integer", "UH",61
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280639520, "Model::Bip001 R Finger3", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",6.22514724731445,-0.323745727539063,-0.909749090671539
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0.0456373005408049,-1.42635368145089,-0.00113600389165046
+			P: "MaxHandle", "int", "Integer", "UH",66
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280630752, "Model::Bip001 R Finger31", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",2.24147796630859,0,-2.38418579101563e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-3.33505330567029e-09,1.34338741969409e-07,9.77066398145592e-12
+			P: "MaxHandle", "int", "Integer", "UH",67
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280641712, "Model::Bip001 R Finger32", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.62089157104492,0,2.38418579101563e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-3.33505330567029e-09,1.34338741969409e-07,9.77066398145592e-12
+			P: "MaxHandle", "int", "Integer", "UH",68
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280648288, "Model::Bip001 R Finger3Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.81623458862305,0,-2.38418579101563e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",3.33505330567029e-09,-1.34338741969409e-07,-179.99999999999
+			P: "Lcl Scaling", "Lcl Scaling", "", "A",-1,-1,-1
+			P: "MaxHandle", "int", "Integer", "UH",65
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280646096, "Model::Bip001 R Finger4", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",5.96633148193359,0.0884628295898438,-2.18220138549805
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0.0455103095102265,-2.78395870253051,0.000307673734188636
+			P: "MaxHandle", "int", "Integer", "UH",70
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280650480, "Model::Bip001 R Finger41", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.69084548950195,-7.62939453125e-06,4.76837158203125e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-3.33505330567029e-09,1.07312512826429e-07,1.04220403378156e-10
+			P: "MaxHandle", "int", "Integer", "UH",71
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069280652672, "Model::Bip001 R Finger42", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.33370971679688,7.62939453125e-06,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-3.33505330567029e-09,1.07312512826429e-07,1.04220403378156e-10
+			P: "MaxHandle", "int", "Integer", "UH",72
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356470976, "Model::Bip001 R Finger4Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",1.20298004150391,0,4.76837158203125e-07
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",3.33505330567029e-09,-1.07312512826429e-07,-179.999999999896
+			P: "Lcl Scaling", "Lcl Scaling", "", "A",-1,-1,-1
+			P: "MaxHandle", "int", "Integer", "UH",69
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356464400, "Model::Bip001 L Thigh", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",-7.62939453125e-06,1.16825103759766e-05,6.22848176956177
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-179.999919662031,8.36300446215463e-05,-179.399995652082
+			P: "MaxHandle", "int", "Integer", "UH",7
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356473168, "Model::Bip001 L Calf", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "RotationActive", "bool", "", "",1
+			P: "RotationMinX", "bool", "", "",1
+			P: "RotationMinY", "bool", "", "",1
+			P: "RotationMaxX", "bool", "", "",1
+			P: "RotationMaxY", "bool", "", "",1
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",30.2931785583496,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-1.42488851408513e-12,-0,-5.0591489609581
+			P: "MaxHandle", "int", "Integer", "UH",8
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356466592, "Model::Bip001 L Foot", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",32.1534767150879,-4.76837158203125e-07,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",6.29482787159318e-12,5.00895612680854e-06,5.65915080531283
+			P: "MaxHandle", "int", "Integer", "UH",9
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356475360, "Model::Bip001 L Toe0", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",4.74943494796753,10.0313711166382,-0.0232181549072266
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-1.50078950087763e-19,90
+			P: "MaxHandle", "int", "Integer", "UH",25
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356462208, "Model::Bip001 L Toe0Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",6.52138614654541,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-0,1.50078950087763e-19,-180
+			P: "Lcl Scaling", "Lcl Scaling", "", "A",-1,-1,-1
+			P: "MaxHandle", "int", "Integer", "UH",35
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356481936, "Model::Bip001 R Thigh", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",7.62939453125e-06,-5.48362731933594e-06,-6.22848176956177
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-179.999919662031,8.36300446215463e-05,-179.399995652082
+			P: "MaxHandle", "int", "Integer", "UH",10
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356477552, "Model::Bip001 R Calf", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "RotationActive", "bool", "", "",1
+			P: "RotationMinX", "bool", "", "",1
+			P: "RotationMinY", "bool", "", "",1
+			P: "RotationMaxX", "bool", "", "",1
+			P: "RotationMaxY", "bool", "", "",1
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",30.2931785583496,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",-1.42488851408513e-12,-0,-5.0591489609581
+			P: "MaxHandle", "int", "Integer", "UH",11
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356479744, "Model::Bip001 R Foot", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",32.1534767150879,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",6.29482787159318e-12,5.00895612680854e-06,5.65915080531283
+			P: "MaxHandle", "int", "Integer", "UH",12
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356468784, "Model::Bip001 R Toe0", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",4.74943494796753,10.0313711166382,0.0232181549072266
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-1.50078950087763e-19,90
+			P: "MaxHandle", "int", "Integer", "UH",28
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+	Model: 2069356484128, "Model::Bip001 R Toe0Nub", "LimbNode" {
+		Version: 232
+		Properties70:  {
+			P: "InheritType", "enum", "", "",1
+			P: "ScalingMax", "Vector3D", "Vector", "",0,0,0
+			P: "Show", "bool", "", "",0
+			P: "DefaultAttributeIndex", "int", "Integer", "",0
+			P: "Lcl Translation", "Lcl Translation", "", "A",6.52138614654541,0,0
+			P: "Lcl Rotation", "Lcl Rotation", "", "A",0,-1.50078950087763e-19,0
+			P: "MaxHandle", "int", "Integer", "UH",34
+		}
+		Shading: T
+		Culling: "CullingOff"
+	}
+}
+
+; Object connections
+;------------------------------------------------------------------
+
+Connections:  {
+	
+	;Model::Bip001, Model::RootNode
+	C: "OO",2069356499376,0
+	
+	;Model::Bip001 Footsteps, Model::Bip001
+	C: "OO",2069356494992,2069356499376
+	
+	;Model::Bip001 Pelvis, Model::Bip001
+	C: "OO",2069356508144,2069356499376
+	
+	;NodeAttribute::, Model::Bip001
+	C: "OO",2079764056352,2069356499376
+	
+	;Model::Bip001 Spine, Model::Bip001 Pelvis
+	C: "OO",2069356512528,2069356508144
+	
+	;Model::Bip001 L Thigh, Model::Bip001 Pelvis
+	C: "OO",2069356464400,2069356508144
+	
+	;Model::Bip001 R Thigh, Model::Bip001 Pelvis
+	C: "OO",2069356481936,2069356508144
+	
+	;NodeAttribute::, Model::Bip001 Pelvis
+	C: "OO",2079764056736,2069356508144
+	
+	;Model::Bip001 Spine1, Model::Bip001 Spine
+	C: "OO",2069356514720,2069356512528
+	
+	;NodeAttribute::, Model::Bip001 Spine
+	C: "OO",2079764050976,2069356512528
+	
+	;Model::Bip001 Neck, Model::Bip001 Spine1
+	C: "OO",2069356505952,2069356514720
+	
+	;Model::Bip001 L Clavicle, Model::Bip001 Spine1
+	C: "OO",2069356503760,2069356514720
+	
+	;Model::Bip001 R Clavicle, Model::Bip001 Spine1
+	C: "OO",2069222929840,2069356514720
+	
+	;NodeAttribute::, Model::Bip001 Spine1
+	C: "OO",2079764055200,2069356514720
+	
+	;Model::Bip001 Head, Model::Bip001 Neck
+	C: "OO",2069356510336,2069356505952
+	
+	;NodeAttribute::, Model::Bip001 Neck
+	C: "OO",2079764050208,2069356505952
+	
+	;Model::Bip001 HeadNub, Model::Bip001 Head
+	C: "OO",2069356501568,2069356510336
+	
+	;NodeAttribute::, Model::Bip001 Head
+	C: "OO",2079764057120,2069356510336
+	
+	;NodeAttribute::, Model::Bip001 HeadNub
+	C: "OO",2079764054240,2069356501568
+	
+	;Model::Bip001 L UpperArm, Model::Bip001 L Clavicle
+	C: "OO",2069356519104,2069356503760
+	
+	;NodeAttribute::, Model::Bip001 L Clavicle
+	C: "OO",2079764050400,2069356503760
+	
+	;Model::Bip001 L Forearm, Model::Bip001 L UpperArm
+	C: "OO",2069356523488,2069356519104
+	
+	;NodeAttribute::, Model::Bip001 L UpperArm
+	C: "OO",2079764053280,2069356519104
+	
+	;Model::Bip001 L Hand, Model::Bip001 L Forearm
+	C: "OO",2069356516912,2069356523488
+	
+	;NodeAttribute::, Model::Bip001 L Forearm
+	C: "OO",2079764051936,2069356523488
+	
+	;Model::Bip001 L Finger0, Model::Bip001 L Hand
+	C: "OO",2069356521296,2069356516912
+	
+	;Model::Bip001 L Finger1, Model::Bip001 L Hand
+	C: "OO",2081539909136,2069356516912
+	
+	;Model::Bip001 L Finger2, Model::Bip001 L Hand
+	C: "OO",2081539906944,2069356516912
+	
+	;Model::Bip001 L Finger3, Model::Bip001 L Hand
+	C: "OO",2081539924480,2069356516912
+	
+	;Model::Bip001 L Finger4, Model::Bip001 L Hand
+	C: "OO",2069222932032,2069356516912
+	
+	;NodeAttribute::, Model::Bip001 L Hand
+	C: "OO",2079764052320,2069356516912
+	
+	;Model::Bip001 L Finger01, Model::Bip001 L Finger0
+	C: "OO",2081539900368,2069356521296
+	
+	;NodeAttribute::, Model::Bip001 L Finger0
+	C: "OO",2079764057312,2069356521296
+	
+	;Model::Bip001 L Finger02, Model::Bip001 L Finger01
+	C: "OO",2081539913520,2081539900368
+	
+	;NodeAttribute::, Model::Bip001 L Finger01
+	C: "OO",2079764050592,2081539900368
+	
+	;Model::Bip001 L Finger0Nub, Model::Bip001 L Finger02
+	C: "OO",2081539904752,2081539913520
+	
+	;NodeAttribute::, Model::Bip001 L Finger02
+	C: "OO",2079764052128,2081539913520
+	
+	;NodeAttribute::, Model::Bip001 L Finger0Nub
+	C: "OO",2079764050784,2081539904752
+	
+	;Model::Bip001 L Finger11, Model::Bip001 L Finger1
+	C: "OO",2081539902560,2081539909136
+	
+	;NodeAttribute::, Model::Bip001 L Finger1
+	C: "OO",2079764051168,2081539909136
+	
+	;Model::Bip001 L Finger12, Model::Bip001 L Finger11
+	C: "OO",2081539920096,2081539902560
+	
+	;NodeAttribute::, Model::Bip001 L Finger11
+	C: "OO",2079764051360,2081539902560
+	
+	;Model::Bip001 L Finger1Nub, Model::Bip001 L Finger12
+	C: "OO",2081539917904,2081539920096
+	
+	;NodeAttribute::, Model::Bip001 L Finger12
+	C: "OO",2079764056160,2081539920096
+	
+	;NodeAttribute::, Model::Bip001 L Finger1Nub
+	C: "OO",2079764055584,2081539917904
+	
+	;Model::Bip001 L Finger21, Model::Bip001 L Finger2
+	C: "OO",2081539915712,2081539906944
+	
+	;NodeAttribute::, Model::Bip001 L Finger2
+	C: "OO",2079764054432,2081539906944
+	
+	;Model::Bip001 L Finger22, Model::Bip001 L Finger21
+	C: "OO",2081539911328,2081539915712
+	
+	;NodeAttribute::, Model::Bip001 L Finger21
+	C: "OO",2079764052512,2081539915712
+	
+	;Model::Bip001 L Finger2Nub, Model::Bip001 L Finger22
+	C: "OO",2081539922288,2081539911328
+	
+	;NodeAttribute::, Model::Bip001 L Finger22
+	C: "OO",2079764051552,2081539911328
+	
+	;NodeAttribute::, Model::Bip001 L Finger2Nub
+	C: "OO",2079764054624,2081539922288
+	
+	;Model::Bip001 L Finger31, Model::Bip001 L Finger3
+	C: "OO",2081539926672,2081539924480
+	
+	;NodeAttribute::, Model::Bip001 L Finger3
+	C: "OO",2079764052704,2081539924480
+	
+	;Model::Bip001 L Finger32, Model::Bip001 L Finger31
+	C: "OO",2081539928864,2081539926672
+	
+	;NodeAttribute::, Model::Bip001 L Finger31
+	C: "OO",2079764055776,2081539926672
+	
+	;Model::Bip001 L Finger3Nub, Model::Bip001 L Finger32
+	C: "OO",2069222927648,2081539928864
+	
+	;NodeAttribute::, Model::Bip001 L Finger32
+	C: "OO",2079764053472,2081539928864
+	
+	;NodeAttribute::, Model::Bip001 L Finger3Nub
+	C: "OO",2079764053664,2069222927648
+	
+	;Model::Bip001 L Finger41, Model::Bip001 L Finger4
+	C: "OO",2069222934224,2069222932032
+	
+	;NodeAttribute::, Model::Bip001 L Finger4
+	C: "OO",2079764054816,2069222932032
+	
+	;Model::Bip001 L Finger42, Model::Bip001 L Finger41
+	C: "OO",2069222936416,2069222934224
+	
+	;NodeAttribute::, Model::Bip001 L Finger41
+	C: "OO",2079764056544,2069222934224
+	
+	;Model::Bip001 L Finger4Nub, Model::Bip001 L Finger42
+	C: "OO",2069222938608,2069222936416
+	
+	;NodeAttribute::, Model::Bip001 L Finger42
+	C: "OO",2079764053856,2069222936416
+	
+	;NodeAttribute::, Model::Bip001 L Finger4Nub
+	C: "OO",2079764055008,2069222938608
+	
+	;Model::Bip001 R UpperArm, Model::Bip001 R Clavicle
+	C: "OO",2069222925456,2069222929840
+	
+	;NodeAttribute::, Model::Bip001 R Clavicle
+	C: "OO",2079764056928,2069222929840
+	
+	;Model::Bip001 R Forearm, Model::Bip001 R UpperArm
+	C: "OO",2069222947376,2069222925456
+	
+	;NodeAttribute::, Model::Bip001 R UpperArm
+	C: "OO",2079220494832,2069222925456
+	
+	;Model::Bip001 R Hand, Model::Bip001 R Forearm
+	C: "OO",2069222940800,2069222947376
+	
+	;NodeAttribute::, Model::Bip001 R Forearm
+	C: "OO",2079220496752,2069222947376
+	
+	;Model::Bip001 R Finger0, Model::Bip001 R Hand
+	C: "OO",2069222942992,2069222940800
+	
+	;Model::Bip001 R Finger1, Model::Bip001 R Hand
+	C: "OO",2069222953952,2069222940800
+	
+	;Model::Bip001 R Finger2, Model::Bip001 R Hand
+	C: "OO",2069280637328,2069222940800
+	
+	;Model::Bip001 R Finger3, Model::Bip001 R Hand
+	C: "OO",2069280639520,2069222940800
+	
+	;Model::Bip001 R Finger4, Model::Bip001 R Hand
+	C: "OO",2069280646096,2069222940800
+	
+	;NodeAttribute::, Model::Bip001 R Hand
+	C: "OO",2079220496944,2069222940800
+	
+	;Model::Bip001 R Finger01, Model::Bip001 R Finger0
+	C: "OO",2069222951760,2069222942992
+	
+	;NodeAttribute::, Model::Bip001 R Finger0
+	C: "OO",2079220495600,2069222942992
+	
+	;Model::Bip001 R Finger02, Model::Bip001 R Finger01
+	C: "OO",2069222949568,2069222951760
+	
+	;NodeAttribute::, Model::Bip001 R Finger01
+	C: "OO",2079220493488,2069222951760
+	
+	;Model::Bip001 R Finger0Nub, Model::Bip001 R Finger02
+	C: "OO",2069222945184,2069222949568
+	
+	;NodeAttribute::, Model::Bip001 R Finger02
+	C: "OO",2079220496560,2069222949568
+	
+	;NodeAttribute::, Model::Bip001 R Finger0Nub
+	C: "OO",2079220494448,2069222945184
+	
+	;Model::Bip001 R Finger11, Model::Bip001 R Finger1
+	C: "OO",2069280635136,2069222953952
+	
+	;NodeAttribute::, Model::Bip001 R Finger1
+	C: "OO",2079220496176,2069222953952
+	
+	;Model::Bip001 R Finger12, Model::Bip001 R Finger11
+	C: "OO",2069280626368,2069280635136
+	
+	;NodeAttribute::, Model::Bip001 R Finger11
+	C: "OO",2079220495024,2069280635136
+	
+	;Model::Bip001 R Finger1Nub, Model::Bip001 R Finger12
+	C: "OO",2069280632944,2069280626368
+	
+	;NodeAttribute::, Model::Bip001 R Finger12
+	C: "OO",2079220493872,2069280626368
+	
+	;NodeAttribute::, Model::Bip001 R Finger1Nub
+	C: "OO",2079220494064,2069280632944
+	
+	;Model::Bip001 R Finger21, Model::Bip001 R Finger2
+	C: "OO",2069280628560,2069280637328
+	
+	;NodeAttribute::, Model::Bip001 R Finger2
+	C: "OO",2079220494256,2069280637328
+	
+	;Model::Bip001 R Finger22, Model::Bip001 R Finger21
+	C: "OO",2069280624176,2069280628560
+	
+	;NodeAttribute::, Model::Bip001 R Finger21
+	C: "OO",2079220495792,2069280628560
+	
+	;Model::Bip001 R Finger2Nub, Model::Bip001 R Finger22
+	C: "OO",2069280643904,2069280624176
+	
+	;NodeAttribute::, Model::Bip001 R Finger22
+	C: "OO",2079220494640,2069280624176
+	
+	;NodeAttribute::, Model::Bip001 R Finger2Nub
+	C: "OO",2079220496368,2069280643904
+	
+	;Model::Bip001 R Finger31, Model::Bip001 R Finger3
+	C: "OO",2069280630752,2069280639520
+	
+	;NodeAttribute::, Model::Bip001 R Finger3
+	C: "OO",2079220493296,2069280639520
+	
+	;Model::Bip001 R Finger32, Model::Bip001 R Finger31
+	C: "OO",2069280641712,2069280630752
+	
+	;NodeAttribute::, Model::Bip001 R Finger31
+	C: "OO",2067955793216,2069280630752
+	
+	;Model::Bip001 R Finger3Nub, Model::Bip001 R Finger32
+	C: "OO",2069280648288,2069280641712
+	
+	;NodeAttribute::, Model::Bip001 R Finger32
+	C: "OO",2067955791104,2069280641712
+	
+	;NodeAttribute::, Model::Bip001 R Finger3Nub
+	C: "OO",2079175337680,2069280648288
+	
+	;Model::Bip001 R Finger41, Model::Bip001 R Finger4
+	C: "OO",2069280650480,2069280646096
+	
+	;NodeAttribute::, Model::Bip001 R Finger4
+	C: "OO",2067871804464,2069280646096
+	
+	;Model::Bip001 R Finger42, Model::Bip001 R Finger41
+	C: "OO",2069280652672,2069280650480
+	
+	;NodeAttribute::, Model::Bip001 R Finger41
+	C: "OO",2079166985216,2069280650480
+	
+	;Model::Bip001 R Finger4Nub, Model::Bip001 R Finger42
+	C: "OO",2069356470976,2069280652672
+	
+	;NodeAttribute::, Model::Bip001 R Finger42
+	C: "OO",2069737026256,2069280652672
+	
+	;NodeAttribute::, Model::Bip001 R Finger4Nub
+	C: "OO",2080001976720,2069356470976
+	
+	;Model::Bip001 L Calf, Model::Bip001 L Thigh
+	C: "OO",2069356473168,2069356464400
+	
+	;NodeAttribute::, Model::Bip001 L Thigh
+	C: "OO",2080001975376,2069356464400
+	
+	;Model::Bip001 L Foot, Model::Bip001 L Calf
+	C: "OO",2069356466592,2069356473168
+	
+	;NodeAttribute::, Model::Bip001 L Calf
+	C: "OO",2080001971728,2069356473168
+	
+	;Model::Bip001 L Toe0, Model::Bip001 L Foot
+	C: "OO",2069356475360,2069356466592
+	
+	;NodeAttribute::, Model::Bip001 L Foot
+	C: "OO",2080001973264,2069356466592
+	
+	;Model::Bip001 L Toe0Nub, Model::Bip001 L Toe0
+	C: "OO",2069356462208,2069356475360
+	
+	;NodeAttribute::, Model::Bip001 L Toe0
+	C: "OO",2080001973456,2069356475360
+	
+	;NodeAttribute::, Model::Bip001 L Toe0Nub
+	C: "OO",2080001978064,2069356462208
+	
+	;Model::Bip001 R Calf, Model::Bip001 R Thigh
+	C: "OO",2069356477552,2069356481936
+	
+	;NodeAttribute::, Model::Bip001 R Thigh
+	C: "OO",2080001972112,2069356481936
+	
+	;Model::Bip001 R Foot, Model::Bip001 R Calf
+	C: "OO",2069356479744,2069356477552
+	
+	;NodeAttribute::, Model::Bip001 R Calf
+	C: "OO",2080001976144,2069356477552
+	
+	;Model::Bip001 R Toe0, Model::Bip001 R Foot
+	C: "OO",2069356468784,2069356479744
+	
+	;NodeAttribute::, Model::Bip001 R Foot
+	C: "OO",2080001979216,2069356479744
+	
+	;Model::Bip001 R Toe0Nub, Model::Bip001 R Toe0
+	C: "OO",2069356484128,2069356468784
+	
+	;NodeAttribute::, Model::Bip001 R Toe0
+	C: "OO",2080001979408,2069356468784
+	
+	;NodeAttribute::, Model::Bip001 R Toe0Nub
+	C: "OO",2080001975760,2069356484128
+}

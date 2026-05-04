@@ -5,6 +5,11 @@
 //   - 회전 보존 옵션 추가. 원본은 모든 transform 의 회전을 identity 로 만들지만,
 //     fork 는 NormalizeOptions 의 필터에 따라 선택적으로 회전을 보존합니다.
 //     (스케일은 원본과 마찬가지로 항상 1 로 정규화됨)
+//   - 베이크된 mesh.name 을 source mesh asset 이름 대신 dst GameObject 이름 기반으로
+//     변경 ("{dst.name}.baked"). 사용자가 작업 전 GO 를 리네임한 경우(예: GO 'Body'
+//     안에 face mesh 가 들어 있어 GO 이름만 'Face' 로 정리)에도 normalized 트리에서
+//     mesh 이름이 dst GO 와 1:1 매칭됨. 원본 srcMesh.name 기반은 여러 dst 가 동일한
+//     ".baked" 이름을 갖는 현상을 유발해 FBX export/import 단계에서 매핑 혼선 위험.
 //
 // 회전 보존 시 동작:
 //   - CopyAndBuild 에서 dst transform 의 world rotation 을 source 와 동일하게 설정
@@ -247,9 +252,17 @@ namespace YAMO.UnityTools.Editor
                 srcRenderer.sharedMesh = srcMesh;
             }
 
-            // BakeMesh — 현재 본 포즈를 vertex 에 굽기
+            // BakeMesh — 현재 본 포즈를 vertex 에 굽기.
+            // mesh.name 은 source mesh asset 이름이 아니라 "dst GameObject 이름" 기반으로 짓는다.
+            // 이유: 사용자가 작업 전에 GameObject 이름을 정리하는 경우가 흔한데
+            //       (예: 원본 캐릭터에서 'Body' 라는 GO 안에 실제로는 face mesh 가 들어 있어
+            //        GO 이름만 'Face' 로 리네임해도 mesh asset.name 은 'Body' 그대로),
+            //       srcMesh.name 기반으로 짓으면 normalized 트리에서 여러 dst GO 가
+            //       동일한 ".baked" 이름을 갖게 되어 FBX export/import 단계에서 mesh 매핑이
+            //       꼬이거나 진단 로그가 혼란스러워진다. dst.name 을 쓰면 사용자가 의도한
+            //       이름으로 1:1 매칭이 보장됨.
             var mesh = srcMesh.Copy(false);
-            mesh.name = srcMesh.name + ".baked";
+            mesh.name = dst.name + ".baked";
             srcRenderer.BakeMesh(mesh);
 
             var blendShapeValues = new Dictionary<int, float>();
@@ -399,6 +412,7 @@ namespace YAMO.UnityTools.Editor
 
             var dstFilter = dst.gameObject.AddComponent<MeshFilter>();
             var dstMesh = srcFilter.sharedMesh.Copy(false);
+            dstMesh.name = dst.name + ".baked";  // skinned mesh 와 동일한 정책: dst GO 이름 기반
 
             // 회전 보존이면 스케일만 적용. 그렇지 않으면 원본처럼 localToWorldMatrix(회전+스케일).
             if (shouldPreserve(src))

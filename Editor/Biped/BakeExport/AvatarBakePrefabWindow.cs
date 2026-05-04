@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -39,6 +40,8 @@ namespace YAMO.UnityTools.Editor
         private bool _restoreSourceAfterBake     = true;
         private bool _updateWhenOffscreenInPrefab = true;
         private bool _materialImportNone         = false;  // 기본 OFF: 슬롯 갯수/이름 보존
+        private bool _verboseDiagnostics = false;          // 메시 매핑 디버그 로그
+        private string _lastLogFilePath = null;            // 가장 최근 실행 로그 파일 경로 (UI 표시용)
 
         // ---- 로그 ----
         private List<string> _logMessages = new List<string>();
@@ -133,6 +136,12 @@ namespace YAMO.UnityTools.Editor
             _restoreSourceAfterBake     = EditorGUILayout.Toggle("Restore Source After Bake",    _restoreSourceAfterBake);
             _updateWhenOffscreenInPrefab = EditorGUILayout.Toggle("Update When Offscreen (Prefab)", _updateWhenOffscreenInPrefab);
             _materialImportNone         = EditorGUILayout.Toggle("Material Import: None",        _materialImportNone);
+            _verboseDiagnostics = EditorGUILayout.Toggle(
+                new GUIContent("Verbose Diagnostics (debug logs)",
+                    "각 단계 (source / normalized / FBX 임포트 직후 / 8.5 직후 / prefab 저장 후) 의 " +
+                    "SkinnedMeshRenderer 인벤토리(GO 경로 · sharedMesh 이름 · vertex 수 · " +
+                    "instance ID)를 로그로 출력. 메시 매핑 꼬임 디버깅용."),
+                _verboseDiagnostics);
 
             // ---- 실행 ----
             EditorGUILayout.Space();
@@ -153,12 +162,63 @@ namespace YAMO.UnityTools.Editor
                 GUILayout.Label(line);
             }
             EditorGUILayout.EndScrollView();
+
+            // 로그 파일 표시 / 액세스
+            if (!string.IsNullOrEmpty(_lastLogFilePath))
+            {
+                var resolvedPath = Path.IsPathRooted(_lastLogFilePath)
+                    ? _lastLogFilePath
+                    : Path.Combine(Path.GetDirectoryName(Application.dataPath), _lastLogFilePath)
+                        .Replace('\\', '/');
+                bool fileExists = File.Exists(resolvedPath);
+                EditorGUILayout.LabelField("Log file", resolvedPath, EditorStyles.miniLabel);
+                EditorGUILayout.BeginHorizontal();
+                using (new EditorGUI.DisabledScope(!fileExists))
+                {
+                    if (GUILayout.Button("Open Log File"))
+                    {
+                        EditorUtility.OpenWithDefaultApp(resolvedPath);
+                    }
+                    if (GUILayout.Button("Reveal in Explorer"))
+                    {
+                        EditorUtility.RevealInFinder(resolvedPath);
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+
+            EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Clear Log"))
             {
                 _logMessages.Clear();
             }
+            if (GUILayout.Button("Save Log to File…"))
+            {
+                SaveCurrentLogToFile();
+            }
+            EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndScrollView();
+        }
+
+        /// <summary>
+        /// 현재 윈도우에 누적된 _logMessages 를 사용자가 지정한 파일로 저장.
+        /// VerboseDiagnostics 가 꺼져 있어 자동 파일이 만들어지지 않은 경우의 수동 export.
+        /// </summary>
+        private void SaveCurrentLogToFile()
+        {
+            var defaultName = $"AvatarBake_log_{System.DateTime.Now:yyyyMMdd_HHmmss}.log";
+            var path = EditorUtility.SaveFilePanel("Save Log", "", defaultName, "log");
+            if (string.IsNullOrEmpty(path)) return;
+            try
+            {
+                File.WriteAllLines(path, _logMessages, System.Text.Encoding.UTF8);
+                EditorUtility.RevealInFinder(path);
+            }
+            catch (System.Exception e)
+            {
+                EditorUtility.DisplayDialog("Save Log Failed", e.Message, "OK");
+            }
         }
 
         private void DrawPathField(string label, ref string path, string ext, string defaultName)
@@ -294,6 +354,18 @@ namespace YAMO.UnityTools.Editor
 
             _logMessages.Clear();
 
+            // VerboseDiagnostics ON 이면 자동으로 timestamp 기반 로그 파일 경로 생성.
+            // 프로젝트 루트의 Logs/YAMO/AvatarBake_yyyyMMdd_HHmmss.log
+            string logFilePath = null;
+            if (_verboseDiagnostics)
+            {
+                var sourceName = _source != null ? _source.name : "unknown";
+                var safeSourceName = string.Concat(sourceName.Select(c =>
+                    System.Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c));
+                logFilePath = $"Logs/YAMO/AvatarBake_{safeSourceName}_{System.DateTime.Now:yyyyMMdd_HHmmss}.log";
+            }
+            _lastLogFilePath = logFilePath;
+
             var opt = new AvatarBakeOptions
             {
                 Source              = _source,
@@ -312,6 +384,8 @@ namespace YAMO.UnityTools.Editor
                 RestoreSourceAfterBake     = _restoreSourceAfterBake,
                 UpdateWhenOffscreenInPrefab = _updateWhenOffscreenInPrefab,
                 MaterialImportNone         = _materialImportNone,
+                VerboseDiagnostics         = _verboseDiagnostics,
+                LogFilePath                = logFilePath,
                 Log = new WindowLog(this),
             };
 
@@ -356,11 +430,13 @@ namespace YAMO.UnityTools.Editor
         /// </summary>
         private void LogHumanoidRenameReport(AvatarBakePreUtilities.HumanoidRenameReport r)
         {
+            const string tag = "[HumanoidRename] ";
             Log("─── Humanoid Rename Report ───");
 
             if (!r.BonesDetected)
             {
                 Log("No humanoid bones detected (Animator must be Humanoid, or biped names must match).");
+                Debug.LogWarning(tag + "No humanoid bones detected (Animator must be Humanoid, or biped names must match).");
                 return;
             }
 
@@ -368,15 +444,19 @@ namespace YAMO.UnityTools.Editor
             if (r.Aborted)
             {
                 Log("⚠ ABORTED: " + r.AbortReason);
+                Debug.LogError(tag + "ABORTED: " + r.AbortReason);
                 if (r.SpineToNeckIntermediates >= 0)
                 {
                     Log($"   • Spine → Neck intermediates: {r.SpineToNeckIntermediates}");
+                    Debug.LogError(tag + $"Spine → Neck intermediates: {r.SpineToNeckIntermediates}");
                 }
                 if (r.ChestToHeadIntermediates >= 0)
                 {
                     Log($"   • Chest → Head intermediates: {r.ChestToHeadIntermediates}");
+                    Debug.LogError(tag + $"Chest → Head intermediates: {r.ChestToHeadIntermediates}");
                 }
                 Log("   No bones were renamed. Resolve the hierarchy first.");
+                Debug.LogError(tag + "No bones were renamed. Resolve the hierarchy first.");
 
                 // 사용자가 못 보고 지나치지 않도록 팝업 노출
                 var popup = r.AbortReason + "\n\n";
@@ -393,10 +473,12 @@ namespace YAMO.UnityTools.Editor
             if (r.RenamedCount > 0)
             {
                 Log($"Renamed {r.RenamedCount} bone(s) to Unity standard names.");
+                Debug.Log(tag + $"Renamed {r.RenamedCount} bone(s) to Unity standard names.");
             }
             else
             {
                 Log("Nothing to rename (all bones already standard).");
+                Debug.Log(tag + "Nothing to rename (all bones already standard).");
             }
 
             // UpperChest 우회
@@ -405,10 +487,12 @@ namespace YAMO.UnityTools.Editor
                 if (r.UpperChestRenamedToSecondary)
                 {
                     Log($"UpperChest detected → renamed to '{AvatarBakePreUtilities.UpperChestReplacementName}' (Unity will not auto-map this slot).");
+                    Debug.Log(tag + $"UpperChest detected → renamed to '{AvatarBakePreUtilities.UpperChestReplacementName}' (Unity will not auto-map this slot).");
                 }
                 else
                 {
                     Log($"UpperChest detected; already named '{AvatarBakePreUtilities.UpperChestReplacementName}'.");
+                    Debug.Log(tag + $"UpperChest detected; already named '{AvatarBakePreUtilities.UpperChestReplacementName}'.");
                 }
             }
 
@@ -416,6 +500,7 @@ namespace YAMO.UnityTools.Editor
             if (r.SpineCount != 1)
             {
                 Log($"⚠ Spine count = {r.SpineCount} (expected 1). Check the hierarchy.");
+                Debug.LogWarning(tag + $"Spine count = {r.SpineCount} (expected 1). Check the hierarchy.");
             }
             else
             {
@@ -425,6 +510,7 @@ namespace YAMO.UnityTools.Editor
             if (r.ChestCount != 1)
             {
                 Log($"⚠ Chest count = {r.ChestCount} (expected 1). Check the hierarchy.");
+                Debug.LogWarning(tag + $"Chest count = {r.ChestCount} (expected 1). Check the hierarchy.");
             }
             else
             {
@@ -435,10 +521,12 @@ namespace YAMO.UnityTools.Editor
             if (!r.LeftToesDetected)
             {
                 Log("⚠ Left Toes not detected by auto-search. Manual rename required if a left-toe bone exists.");
+                Debug.LogWarning(tag + "Left Toes not detected by auto-search. Manual rename required if a left-toe bone exists.");
             }
             if (!r.RightToesDetected)
             {
                 Log("⚠ Right Toes not detected by auto-search. Manual rename required if a right-toe bone exists.");
+                Debug.LogWarning(tag + "Right Toes not detected by auto-search. Manual rename required if a right-toe bone exists.");
             }
             if (r.LeftToesDetected && r.RightToesDetected)
             {

@@ -71,6 +71,20 @@ namespace YAMO.UnityTools.Editor
                                                       // true 로 하면 슬롯이 빈 상태로 임포트되며 슬롯 이름이
                                                       // 사라질 가능성이 있음.
 
+        public bool VerboseDiagnostics = false;
+        // 각 단계에서 SkinnedMeshRenderer 인벤토리 (GO 경로, sharedMesh 이름·vertex count·instance ID)
+        // 를 로그로 출력. 메시 매핑이 꼬이는 문제를 진단할 때 사용.
+
+        public string LogFilePath = null;
+        // 비어 있지 않으면 파이프라인의 모든 log.Info/Warning/Error 가 콘솔/윈도우 외에
+        // 이 경로의 텍스트 파일에도 함께 기록됨. 절대경로 또는 프로젝트 루트 기준 상대경로.
+        // 부모 디렉터리는 필요 시 자동 생성. UTF-8 로 기록 (한글 OK).
+
+        // 참고: 이전 버전에 있던 PreserveOriginalNamesInFbx 옵션은 표준 동작으로 흡수됨.
+        // FBX export 는 항상 UseMayaCompatibleNames=false 로 진행 — 노드/머티리얼 이름의
+        // 원본을 유지해 외부 편집·후속 머티리얼 매칭이 깨지지 않게 한다. step 8.5 가
+        // NAME 기반 매칭이라 자식 재정렬에도 안전하므로 더 이상 옵션화할 이유가 없음.
+
         // ---- 콜백 ----
         public IMigrationLog Log;  // null 이면 DebugMigrationLog 사용
     }
@@ -83,8 +97,34 @@ namespace YAMO.UnityTools.Editor
         /// </summary>
         public static bool Run(AvatarBakeOptions opt)
         {
-            var log = opt.Log ?? new DebugMigrationLog("[AvatarBake] ");
+            var baseLog = opt.Log ?? new DebugMigrationLog("[AvatarBake] ");
+            // LogFilePath 가 설정되어 있으면 파일로도 함께 기록 (Dispose 는 finally 에서)
+            TeeMigrationLog teeLog = null;
+            IMigrationLog log;
+            if (!string.IsNullOrEmpty(opt.LogFilePath))
+            {
+                var resolvedPath = ResolveLogFilePath(opt.LogFilePath);
+                teeLog = new TeeMigrationLog(baseLog, resolvedPath);
+                log = teeLog;
+                log.Info($"Pipeline log will be written to: {resolvedPath}");
+            }
+            else
+            {
+                log = baseLog;
+            }
 
+            try
+            {
+            return RunInternal(opt, log);
+            }
+            finally
+            {
+                teeLog?.Dispose();
+            }
+        }
+
+        private static bool RunInternal(AvatarBakeOptions opt, IMigrationLog log)
+        {
             // ---------------- 입력 검증 ----------------
             if (opt.Source == null) { log.Error("Source GameObject is null."); return false; }
             if (string.IsNullOrEmpty(opt.FbxProjectPath))    { log.Error("FBX path is empty.");    return false; }
@@ -107,6 +147,12 @@ namespace YAMO.UnityTools.Editor
 
             try
             {
+                // ---------------- 0) Diagnostic: source 인벤토리 ----------------
+                if (opt.VerboseDiagnostics)
+                {
+                    LogSmrInventory("[DIAG @0 source]", opt.Source, log);
+                }
+
                 // ---------------- 1) Snapshot ----------------
                 EditorUtility.DisplayProgressBar(PB_TITLE, "Creating snapshot...", 0.05f);
                 log.Info("Creating snapshot of source (preserves original on/off + data)...");
@@ -163,12 +209,17 @@ namespace YAMO.UnityTools.Editor
                 EnsureProjectFolder(opt.FbxProjectPath);
                 EnsureDirectory(Path.GetDirectoryName(fbxAbsolute));
 
-                // ExportModelOptions 를 명시 지정 (reflection 경유):
-                //   - UseMayaCompatibleNames = false : "Bangs.1" 같은 이름의 점(.)이 _ 로
-                //                                      치환되는 문제 방지
+                // FBX 옵션을 명시 지정 (reflection 경유):
+                //   - UseMayaCompatibleNames = false : FBX 노드명·머티리얼명에 원본을 유지.
+                //       (점·공백 등 비-영숫자 문자가 _ 로 치환되지 않음.)
+                //       Unity 임포트 후 자식이 알파벳순 재정렬되더라도 step 8.5 가 NAME 기반
+                //       매칭으로 prefab 인스턴스 이름을 source 기준으로 복원하므로 안전.
                 //   - ExportFormat = Binary          : 바이너리 FBX (파일 크기/호환성)
-                // v5+ FBX Exporter 가 없으면 옵션 없는 fallback 으로 동작 (기능 손실 경고).
-                var exportOptions = YamoFbxExportCompat.BuildBinaryNoMayaCompatOptions();
+                // v5+ : ExportModelOptions (public) 사용
+                // v4   : ExportModelSettingsSerialize (internal) + internal ExportObjects 호출
+                // 둘 다 실패 시 옵션 없는 fallback 으로 동작 (이 경우 이름 치환 발생 가능,
+                // 경고 로그가 남음).
+                var exportOptions = YamoFbxExportCompat.BuildBinaryExportOptions(useMayaCompatibleNames: false);
                 var written = YamoFbxExportCompat.ExportObject(fbxAbsolute, normalized, exportOptions);
                 if (string.IsNullOrEmpty(written))
                 {
@@ -177,6 +228,10 @@ namespace YAMO.UnityTools.Editor
                 }
 
                 // 정규화 임시 GO 즉시 정리
+                if (opt.VerboseDiagnostics)
+                {
+                    LogSmrInventory("[DIAG @5 normalized (post-bake, pre-export-cleanup)]", normalized, log);
+                }
                 Object.DestroyImmediate(normalized);
                 normalized = null;
 
@@ -211,6 +266,27 @@ namespace YAMO.UnityTools.Editor
                 targetInstance.name = Path.GetFileNameWithoutExtension(opt.PrefabProjectPath);
                 // source 옆에 같은 부모 아래 배치
                 targetInstance.transform.SetParent(opt.Source.transform.parent, true);
+
+                if (opt.VerboseDiagnostics)
+                {
+                    LogFbxSubAssets("[DIAG @8a fbx asset sub-assets]", opt.FbxProjectPath, log);
+                    LogSmrInventory("[DIAG @8b targetInstance (just instantiated)]", targetInstance, log);
+                }
+
+                // ---------------- 8.5) FBX 이름 치환 복원 ----------------
+                // FBX export 가 항상 UseMayaCompatibleNames=false 로 동작하므로 FBX 자체에는
+                // 원본 이름이 유지되고, 정상 경로에서는 count=0 (no-op) 가 된다.
+                // 다만 (a) 동일 부모 아래 동명의 형제가 있어 GetUniqueFbxNodeName 이 "_N"
+                // 접미사를 붙인 경우, (b) FBX Exporter 의 reflection 이 실패해 simple
+                // fallback 으로 export 된 경우 등에 일부 GameObject 이름이 sanitize/치환
+                // 상태일 수 있다. NAME 기반 매처가 자식 재정렬에 안전하게 원본 이름 복원.
+                var namesRestored = RestoreOriginalNamesFromSource(
+                    opt.Source.transform, targetInstance.transform);
+                if (namesRestored > 0)
+                {
+                    log.Info($"Restored {namesRestored} GameObject names on prefab instance " +
+                             "(unique-suffix or fallback sanitization detected).");
+                }
 
                 // ---------------- 9) Bone map: snapshot → target ----------------
                 EditorUtility.DisplayProgressBar(PB_TITLE, "Migrating data (snapshot → prefab)...", 0.92f);
@@ -256,7 +332,26 @@ namespace YAMO.UnityTools.Editor
 
                 AssetDatabase.SaveAssets();
                 log.Info($"Prefab saved: {opt.PrefabProjectPath}");
-                log.Info("Pipeline complete. Snapshot and target instance left in scene for review.");
+
+                if (opt.VerboseDiagnostics)
+                {
+                    LogSmrInventory("[DIAG @11a targetInstance (pre-cleanup, post-save)]", targetInstance, log);
+                    var savedAsset = AssetDatabase.LoadMainAssetAtPath(opt.PrefabProjectPath) as GameObject;
+                    if (savedAsset != null)
+                    {
+                        LogSmrInventory("[DIAG @11b saved prefab asset]", savedAsset, log);
+                    }
+                }
+
+                // ---------------- 12) 임시 GameObject 정리 ----------------
+                // 성공 시 snapshot 과 targetInstance 는 더 이상 필요 없으므로 씬에서 제거.
+                // (실패 시에는 finally 블록을 거쳐도 정리하지 않아, 사용자가 디버깅할 수 있게 남겨 둠)
+                Object.DestroyImmediate(snapshot);
+                snapshot = null;
+                Object.DestroyImmediate(targetInstance);
+                targetInstance = null;
+
+                log.Info("Pipeline complete.");
                 return true;
             }
             catch (System.Exception e)
@@ -267,7 +362,9 @@ namespace YAMO.UnityTools.Editor
             }
             finally
             {
-                // 정규화 임시는 무조건 정리. snapshot/targetInstance 는 사용자 검수용으로 보존.
+                // 정규화 임시는 항상 정리.
+                // snapshot/targetInstance 는 성공 경로에서 step 12 가 정리.
+                // 실패 경로에서는 사용자 디버깅을 위해 의도적으로 남겨 둔다.
                 if (normalized != null) Object.DestroyImmediate(normalized);
                 EditorUtility.ClearProgressBar();
             }
@@ -276,6 +373,208 @@ namespace YAMO.UnityTools.Editor
         // ============================================================
         // 내부 헬퍼
         // ============================================================
+
+        /// <summary>
+        /// 진단용: 한 GameObject 트리 안의 SkinnedMeshRenderer 인벤토리를 로그로 출력.
+        /// 각 줄: 경로 | sharedMesh 이름 | 정점 수 | mesh instance ID | sub-mesh 수 | material 수
+        /// 메시 매핑 꼬임 디버깅 시 단계별 호출하여 어디서 sharedMesh 가 다른 mesh 자산으로
+        /// 바뀌는지 (또는 같은 mesh 자산이 여러 GO 에서 공유되는지) 추적.
+        /// </summary>
+        private static void LogSmrInventory(string prefix, GameObject root, IMigrationLog log)
+        {
+            if (root == null) { log.Info($"{prefix} (root is null)"); return; }
+            var smrs = root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            log.Info($"{prefix} root='{root.name}' SMR count={smrs.Length}");
+            foreach (var smr in smrs)
+            {
+                var path = GetRelativePath(smr.transform, root.transform);
+                var mesh = smr.sharedMesh;
+                if (mesh == null)
+                {
+                    log.Info($"  - {path} | sharedMesh=NULL | mat={smr.sharedMaterials?.Length ?? 0}");
+                    continue;
+                }
+                int meshId = mesh.GetInstanceID();
+                log.Info($"  - {path} | sharedMesh='{mesh.name}' | verts={mesh.vertexCount} | " +
+                         $"submeshes={mesh.subMeshCount} | meshID={meshId} | mat={smr.sharedMaterials?.Length ?? 0}");
+            }
+            // 동일 mesh 가 여러 SMR 에 공유되고 있는지 별도 표기
+            var grouped = smrs.Where(s => s.sharedMesh != null)
+                              .GroupBy(s => s.sharedMesh.GetInstanceID())
+                              .Where(g => g.Count() > 1)
+                              .ToList();
+            if (grouped.Count > 0)
+            {
+                log.Warning($"{prefix} 동일 sharedMesh 를 공유하는 SMR 그룹 {grouped.Count} 건 발견:");
+                foreach (var g in grouped)
+                {
+                    var paths = string.Join(", ", g.Select(s => GetRelativePath(s.transform, root.transform)));
+                    log.Warning($"  meshID={g.Key} ('{g.First().sharedMesh.name}') ← {paths}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 진단용: FBX 자산이 임포트된 후 sub-asset 들 (mesh, material 등) 의 목록을 로그로 출력.
+        /// </summary>
+        private static void LogFbxSubAssets(string prefix, string fbxProjectPath, IMigrationLog log)
+        {
+            var assets = AssetDatabase.LoadAllAssetsAtPath(fbxProjectPath);
+            if (assets == null || assets.Length == 0)
+            {
+                log.Warning($"{prefix} no sub-assets found at {fbxProjectPath}");
+                return;
+            }
+            var meshes = assets.OfType<Mesh>().ToList();
+            log.Info($"{prefix} path={fbxProjectPath} — total sub-assets={assets.Length}, meshes={meshes.Count}");
+            foreach (var m in meshes)
+            {
+                log.Info($"  mesh: name='{m.name}' verts={m.vertexCount} submeshes={m.subMeshCount} " +
+                         $"meshID={m.GetInstanceID()}");
+            }
+        }
+
+        private static string GetRelativePath(Transform t, Transform root)
+        {
+            if (t == root) return "<root>";
+            var stack = new System.Collections.Generic.Stack<string>();
+            var cur = t;
+            while (cur != null && cur != root)
+            {
+                stack.Push(cur.name);
+                cur = cur.parent;
+            }
+            return string.Join("/", stack);
+        }
+
+        /// <summary>
+        /// FBX Exporter 가 sanitize 한 target 이름을 source 기준으로 복원.
+        /// Unity FBX 임포터는 자식 GameObject 순서를 알파벳순으로 재정렬하기 때문에
+        /// child-index lockstep 매칭은 안전하지 않다 (source[Face, Body] vs target[Body, Face]
+        /// 처럼 순서가 어긋나면 잘못된 GO 에 source 이름이 붙어 mesh 매핑이 통째로 시프트됨).
+        /// 따라서 NAME 기반 매칭을 한다:
+        ///   Pass 1) target.name == source.name 인 쌍 (sanitize 가 필요 없는 정상 케이스)
+        ///   Pass 2) Maya compat sanitize (비-영숫자 → '_') 이후 같은 이름인 쌍
+        ///   Pass 3) target 끝에 "_N"(N=숫자) 형태로 GetUniqueFbxNodeName 접미사가 붙은 케이스
+        /// 매칭된 쌍에 대해서만 rename 수행 후 자식으로 재귀.
+        /// </summary>
+        private static int RestoreOriginalNamesFromSource(Transform source, Transform target)
+        {
+            int count = 0;
+            RestoreNamesByMatch(source, target, ref count);
+            return count;
+        }
+
+        private static void RestoreNamesByMatch(Transform source, Transform target, ref int count)
+        {
+            var srcList = new System.Collections.Generic.List<Transform>(source.childCount);
+            foreach (Transform c in source) srcList.Add(c);
+            var tgtList = new System.Collections.Generic.List<Transform>(target.childCount);
+            foreach (Transform c in target) tgtList.Add(c);
+
+            var pairs = new System.Collections.Generic.List<(Transform src, Transform tgt)>();
+            var consumedSrc = new System.Collections.Generic.HashSet<Transform>();
+            var pairedTgt = new System.Collections.Generic.HashSet<Transform>();
+
+            // Pass 1: 정확히 같은 이름
+            foreach (var tgt in tgtList)
+            {
+                Transform match = null;
+                foreach (var src in srcList)
+                {
+                    if (consumedSrc.Contains(src)) continue;
+                    if (src.name == tgt.name) { match = src; break; }
+                }
+                if (match != null)
+                {
+                    consumedSrc.Add(match);
+                    pairedTgt.Add(tgt);
+                    pairs.Add((match, tgt));
+                }
+            }
+
+            // Pass 2: source 의 sanitize 형태 == target 이름
+            foreach (var tgt in tgtList)
+            {
+                if (pairedTgt.Contains(tgt)) continue;
+                Transform match = null;
+                foreach (var src in srcList)
+                {
+                    if (consumedSrc.Contains(src)) continue;
+                    if (SanitizeMayaCompat(src.name) == tgt.name) { match = src; break; }
+                }
+                if (match != null)
+                {
+                    consumedSrc.Add(match);
+                    pairedTgt.Add(tgt);
+                    pairs.Add((match, tgt));
+                }
+            }
+
+            // Pass 3: target 이름이 sanitize + "_N" 접미사 (FBX exporter 의 GetUniqueFbxNodeName)
+            foreach (var tgt in tgtList)
+            {
+                if (pairedTgt.Contains(tgt)) continue;
+                var stripped = StripUniqueSuffix(tgt.name);
+                if (stripped == null) continue;
+                Transform match = null;
+                foreach (var src in srcList)
+                {
+                    if (consumedSrc.Contains(src)) continue;
+                    if (SanitizeMayaCompat(src.name) == stripped) { match = src; break; }
+                }
+                if (match != null)
+                {
+                    consumedSrc.Add(match);
+                    pairedTgt.Add(tgt);
+                    pairs.Add((match, tgt));
+                }
+            }
+
+            // 매칭된 쌍만 rename + 재귀
+            foreach (var (src, tgt) in pairs)
+            {
+                if (tgt.name != src.name)
+                {
+                    tgt.gameObject.name = src.name;
+                    count++;
+                }
+                RestoreNamesByMatch(src, tgt, ref count);
+            }
+        }
+
+        /// <summary>
+        /// Maya compatible sanitization: 비-영숫자(언더바 제외 X — 모두 '_' 로) → '_'.
+        /// 첫 글자가 숫자면 앞에 '_' prepend. UnityEditor.Formats.Fbx.Exporter.ModelExporter.
+        /// ConvertToMayaCompatibleName 의 단순화 버전 (diacritics/namespace 처리는 생략).
+        /// </summary>
+        private static string SanitizeMayaCompat(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "_";
+            var sb = new System.Text.StringBuilder(name.Length + 1);
+            if (char.IsDigit(name[0])) sb.Append('_');
+            foreach (var c in name)
+            {
+                sb.Append(char.IsLetterOrDigit(c) ? c : '_');
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 끝에 "_<digits>" 가 붙어 있으면 그 부분을 잘라낸 문자열 반환.
+        /// 그렇지 않으면 null.
+        /// </summary>
+        private static string StripUniqueSuffix(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            int idx = name.LastIndexOf('_');
+            if (idx <= 0 || idx >= name.Length - 1) return null;
+            for (int i = idx + 1; i < name.Length; i++)
+            {
+                if (!char.IsDigit(name[i])) return null;
+            }
+            return name.Substring(0, idx);
+        }
 
         private static void ActivateAllRecursive(Transform t)
         {
@@ -458,6 +757,20 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ---- path utilities ----
+
+        /// <summary>
+        /// LogFilePath 옵션을 절대 경로로 변환.
+        /// - 절대 경로면 그대로
+        /// - 상대 경로면 프로젝트 루트(Assets 의 부모) 기준으로 해석
+        /// </summary>
+        private static string ResolveLogFilePath(string logPath)
+        {
+            if (string.IsNullOrEmpty(logPath)) return null;
+            if (Path.IsPathRooted(logPath)) return logPath.Replace('\\', '/');
+            var dataPath = Application.dataPath.Replace('\\', '/');
+            var projectRoot = dataPath.Substring(0, dataPath.Length - "Assets".Length);
+            return (projectRoot + logPath.Replace('\\', '/')).Replace("//", "/");
+        }
 
         private static string ProjectRelativeToAbsolute(string projectRel)
         {
