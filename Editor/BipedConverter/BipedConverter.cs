@@ -483,7 +483,12 @@ namespace YAMO.UnityTools.Editor
             var pos = child.position;
             var rot = child.rotation;
             var worldScale = child.lossyScale;
-            Undo.SetTransformParent(child, newParent, "Reparent to Biped");
+
+            // Undo.SetTransformParent는 구버전 Unity(2021.3 초기 패치)에서 비동기 처리되어
+            // 직후에 설정하는 position/rotation이 구 부모 기준으로 적용되는 버그가 있음.
+            // 따라서 SetParent를 직접 동기 호출하고, Undo는 RegisterCompleteObjectUndo로 대체.
+            Undo.RegisterCompleteObjectUndo(child, "Reparent to Biped");
+            child.SetParent(newParent, worldPositionStays: true);
             child.position = pos;
             child.rotation = rot;
             var ps = newParent.lossyScale;
