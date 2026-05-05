@@ -482,9 +482,16 @@ namespace YAMO.UnityTools.Editor
         {
             var pos = child.position;
             var rot = child.rotation;
+            var worldScale = child.lossyScale;
             Undo.SetTransformParent(child, newParent, "Reparent to Biped");
             child.position = pos;
             child.rotation = rot;
+            var ps = newParent.lossyScale;
+            child.localScale = new Vector3(
+                ps.x != 0f ? worldScale.x / ps.x : 1f,
+                ps.y != 0f ? worldScale.y / ps.y : 1f,
+                ps.z != 0f ? worldScale.z / ps.z : 1f
+            );
         }
     }
 }
