@@ -153,6 +153,12 @@ namespace YAMO.UnityTools.Editor
             }
             armatureRoot = workingCopy;
 
+            // Humanoid Animator는 Edit Mode에서도 본 계층 변경 시 Avatar T-pose를 재평가하여
+            // ReparentPreservingWorld가 설정한 world position을 덮어씀 (VRM 모델 등 다중 Animator 포함).
+            // 리패런팅 전에 계층 전체의 Animator를 제거해야 위치가 보존됨.
+            foreach (var anim in armatureRoot.GetComponentsInChildren<Animator>(true))
+                Undo.DestroyObjectImmediate(anim);
+
             var templatePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(templatePath);
             if (templatePrefab == null)
             {
@@ -234,10 +240,6 @@ namespace YAMO.UnityTools.Editor
             {
                 Undo.DestroyObjectImmediate(originalArmatureContainer.gameObject);
             }
-
-            var animator = armatureRoot.GetComponent<Animator>();
-            if (animator != null)
-                Undo.DestroyObjectImmediate(animator);
 
             return armatureRoot;
         }
