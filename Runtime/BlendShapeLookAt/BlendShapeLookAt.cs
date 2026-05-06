@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace YAMO.UnityTools.Editor
+namespace YAMO.UnityTools
 {
     /// <summary>
     /// Blend Shape Look At
@@ -175,6 +175,7 @@ namespace YAMO.UnityTools.Editor
             if (i >= 0) faceMesh.SetBlendShapeWeight(i, value);
         }
 
+#if UNITY_EDITOR
         void OnDrawGizmosSelected()
         {
             if (headTransform == null) return;
@@ -200,5 +201,6 @@ namespace YAMO.UnityTools.Editor
                 Gizmos.DrawLine(pos, t.position); // 카메라 방향
             }
         }
+#endif
     }
 }
