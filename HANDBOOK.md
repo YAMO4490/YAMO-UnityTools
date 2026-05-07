@@ -55,6 +55,9 @@ Packages/com.yamo.unitytools/
     │   ├── HumanBoneRenamer.cs                     ← Tools/YAMO/Bones/Human Bone Renamer
     │   ├── YamoAssetChecker.cs                     ← Tools/YAMO/Bones/YAMO Asset Checker (5섹션 통합)
     │   └── YamoAssetCheckerCore.cs                 ← Asset Checker 코어 정적 헬퍼
+    ├── Camera/
+    │   ├── CameraCompositionWindow.cs              ← Tools/YAMO/Camera/Composition Overlay
+    │   └── MainCameraScreenshotCapture.cs          ← Tools/YAMO/Camera/Capture Main Camera Screenshot
     ├── Physics/
     │   ├── YAMO.UnityTools.Physics.Editor.asmdef   ← Physics 전용 asmdef (defineConstraints 게이트)
     │   ├── AvatarMigrationCore.cs                  ← 마이그레이션 정적 코어 (Bake Pipeline 도 호출)
@@ -343,6 +346,15 @@ UI 구성:
 #### `YamoCam/YamoCamEditor.cs`
 - `YamoCam` 의 CustomEditor.
 - 4 섹션 (Follow / LookAt / Orbital / Noise) 별 활성 토글 + 옵션. 활성 모듈만 펼쳐 표시.
+
+### 5-9. Editor / Camera
+
+#### `Camera/MainCameraScreenshotCapture.cs` — `Tools/YAMO/Camera/Capture Main Camera Screenshot`
+- 에디트 모드에서 `Camera.main` 이 보는 화면을 즉시 PNG 로 저장.
+- Game View 해상도를 리플렉션으로 읽고, 실패하면 카메라 pixel size → 1920×1080 순서로 fallback.
+- 저장 위치: 프로젝트 루트 `Assets/Screenshots/{Scene}_{Camera}_{yyyyMMdd_HHmmss}.png`.
+- ShortcutManager 항목: `YAMO/Capture Main Camera Screenshot` — 기본 키 없음, `Edit ▸ Shortcuts` 에서 원하는 핫키 지정.
+- Unity 2021.2 이상에서는 Scene View Overlay `YAMO Camera` 에 `Shot` 버튼을 등록.
 
 ## 6. 공통 컨벤션
 
