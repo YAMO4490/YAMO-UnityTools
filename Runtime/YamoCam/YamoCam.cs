@@ -189,26 +189,37 @@ namespace YAMO.UnityTools
             return sum / count;
         }
 
+        private Quaternion GetCenterRotation(Transform[] targets)
+        {
+            for (int i = 0; i < targets.Length; i++)
+                if (targets[i] != null) return targets[i].rotation;
+            return Quaternion.identity;
+        }
+
         private void ApplyFollow(float deltaTime)
         {
             Vector3 centerPos = GetCenterPosition(followTargets);
-            if (centerPos == transform.position && followTargets.Length > 0) return;
+            Quaternion centerRot = GetCenterRotation(followTargets);
 
-            Vector3 targetPos = centerPos + positionOffset;
+            // positionOffset은 타겟 로컬 공간 기준 → 월드로 변환
+            Vector3 targetPos = centerPos + centerRot * positionOffset;
             Vector3 currentPos = transform.position;
 
             float distance = Vector3.Distance(currentPos, targetPos);
             float speedMultiplier = 1f + (distance * followDistanceElasticity);
             float t = 1f - Mathf.Exp(-followSmoothSpeed * speedMultiplier * deltaTime);
 
-            Vector3 fullNextPos = Vector3.Lerp(currentPos, targetPos, t);
+            // 축 마스킹을 타겟 로컬 공간에서 수행
+            Quaternion invRot = Quaternion.Inverse(centerRot);
+            Vector3 currentLocal = invRot * (currentPos - centerPos);
+            Vector3 fullNextLocal = invRot * (Vector3.Lerp(currentPos, targetPos, t) - centerPos);
 
-            Vector3 nextPos = currentPos;
-            if (followX) nextPos.x = Mathf.Lerp(currentPos.x, fullNextPos.x, moveRatioX * 0.01f);
-            if (followY) nextPos.y = Mathf.Lerp(currentPos.y, fullNextPos.y, moveRatioY * 0.01f);
-            if (followZ) nextPos.z = Mathf.Lerp(currentPos.z, fullNextPos.z, moveRatioZ * 0.01f);
+            Vector3 nextLocal = currentLocal;
+            if (followX) nextLocal.x = Mathf.Lerp(currentLocal.x, fullNextLocal.x, moveRatioX * 0.01f);
+            if (followY) nextLocal.y = Mathf.Lerp(currentLocal.y, fullNextLocal.y, moveRatioY * 0.01f);
+            if (followZ) nextLocal.z = Mathf.Lerp(currentLocal.z, fullNextLocal.z, moveRatioZ * 0.01f);
 
-            transform.position = nextPos;
+            transform.position = centerPos + centerRot * nextLocal;
         }
 
         private void ApplyOrbital(float deltaTime)

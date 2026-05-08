@@ -162,7 +162,7 @@ Packages/com.yamo.unitytools/
 - **클래스**: `YAMO.UnityTools.YamoCam` (MonoBehaviour, `[ExecuteAlways]`)
 - **AddComponent 메뉴**: `YAMO/YAMO Cam`
 - 카메라 컨트롤 4 모듈:
-  - **Follow**: 타겟 평균 위치 추적 + 거리 기반 elasticity, axis 별 ratio
+  - **Follow**: 타겟 평균 위치 추적 + 거리 기반 elasticity, axis 별 ratio. `positionOffset` 및 축 마스킹은 타겟 **로컬 공간** 기준 → 타겟을 회전시켜도 카메라와의 상대 위치 관계가 유지됨.
   - **LookAt**: 타겟 응시 + axis 별 회전 ratio
   - **Orbital**: 수평 360° 루프 + 수직 ping-pong (sine easing)
   - **Noise (Hand-held)**: Perlin 기반 위치/회전 떨림
@@ -434,6 +434,11 @@ namespace YAMO.UnityTools.Editor
 | Hub 단축키 충돌 | `Edit ▸ Shortcuts` → "YAMO/Open Tool Hub" 검색 → 다른 키로 변경 |
 
 ## 9. 변경 이력 요약
+
+### 0.5.6
+- YamoCam Follow: `positionOffset` 및 축 마스킹(X/Y/Z)을 타겟 로컬 공간 기준으로 변경 → 타겟 루트 회전 시에도 카메라 상대 위치 유지
+- `MainCameraScreenshotCapture` 추가 (`Editor/Camera/`) — 에디트 모드 Main Camera PNG 즉시 저장, Scene View Overlay 버튼
+- BipedConverter FBX 템플릿 파일 추가 (`Editor/BipedConverter/Templates/`)
 
 ### 0.3.0
 - Runtime asmdef 도입 (`YAMO.UnityTools.Runtime`)

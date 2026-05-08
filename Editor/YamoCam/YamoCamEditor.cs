@@ -96,7 +96,7 @@ namespace YAMO.UnityTools.Editor
             {
                 EditorGUI.indentLevel++;
                 EditorGUILayout.PropertyField(followTargets, new GUIContent("Targets"), true);
-                EditorGUILayout.PropertyField(positionOffset, new GUIContent("Position Offset"));
+                EditorGUILayout.PropertyField(positionOffset, new GUIContent("Position Offset (Local)"));
                 EditorGUILayout.Space(4);
 
                 EditorGUILayout.PropertyField(followSmoothSpeed, new GUIContent("Smooth Speed"));
@@ -104,7 +104,7 @@ namespace YAMO.UnityTools.Editor
                 EditorGUILayout.PropertyField(followFrameInterval, new GUIContent("Frame Interval"));
                 EditorGUILayout.Space(4);
 
-                EditorGUILayout.LabelField("Axis On/Off", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("Local Axis On/Off", EditorStyles.miniLabel);
                 EditorGUILayout.BeginHorizontal();
                 followX.boolValue = EditorGUILayout.ToggleLeft("X", followX.boolValue, GUILayout.Width(40));
                 followY.boolValue = EditorGUILayout.ToggleLeft("Y", followY.boolValue, GUILayout.Width(40));
@@ -112,7 +112,7 @@ namespace YAMO.UnityTools.Editor
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.Space(2);
 
-                EditorGUILayout.LabelField("Axis Move Ratio", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField("Local Axis Move Ratio", EditorStyles.miniLabel);
                 if (followX.boolValue) EditorGUILayout.Slider(moveRatioX, 0f, 100f, "X Ratio %");
                 if (followY.boolValue) EditorGUILayout.Slider(moveRatioY, 0f, 100f, "Y Ratio %");
                 if (followZ.boolValue) EditorGUILayout.Slider(moveRatioZ, 0f, 100f, "Z Ratio %");
