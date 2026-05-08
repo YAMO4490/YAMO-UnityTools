@@ -51,10 +51,10 @@ namespace YAMO.UnityTools
 
         [Header("기준 축")]
         [Tooltip("머리 본 로컬 공간에서 정면을 가리키는 축\n예) Z+ → (0,0,1) / Z- → (0,0,-1) / Y+ → (0,1,0)")]
-        public Vector3 headForwardLocal = Vector3.forward;
+        public Vector3 headForwardLocal = new Vector3(0f, 1f, 0f);
 
         [Tooltip("머리 본 로컬 공간에서 위를 가리키는 축 (보통 (0,1,0))")]
-        public Vector3 headUpLocal = Vector3.up;
+        public Vector3 headUpLocal = new Vector3(-1f, 0f, 0f);
 
         [Header("디버그 기즈모")]
         [Tooltip("씬 뷰 기즈모 화살표 길이 (파란=정면 / 빨간=오른쪽 / 초록=위 / 노란=카메라 방향)")]

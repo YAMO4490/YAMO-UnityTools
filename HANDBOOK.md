@@ -435,6 +435,9 @@ namespace YAMO.UnityTools.Editor
 
 ## 9. 변경 이력 요약
 
+### 0.5.7
+- BlendShapeLookAt: `headForwardLocal` 기본값 `(0,1,0)`, `headUpLocal` 기본값 `(-1,0,0)` 으로 변경
+
 ### 0.5.6
 - YamoCam Follow: `positionOffset` 및 축 마스킹(X/Y/Z)을 타겟 로컬 공간 기준으로 변경 → 타겟 루트 회전 시에도 카메라 상대 위치 유지
 - `MainCameraScreenshotCapture` 추가 (`Editor/Camera/`) — 에디트 모드 Main Camera PNG 즉시 저장, Scene View Overlay 버튼
