@@ -54,6 +54,9 @@ namespace YAMO.UnityTools.Editor
         private Dictionary<string, List<Transform>> _duplicateGroups = new Dictionary<string, List<Transform>>();
         private Vector2 _duplicateScroll;
         private bool _duplicateScanRan = false;
+        private List<Transform> _invalidScaleBones = new List<Transform>();
+        private Vector2 _boneScaleScroll;
+        private bool _boneScaleSearched = false;
 
         [MenuItem("Tools/YAMO/Biped/Avatar Bake & Prefab Generator")]
         public static void Open()
@@ -301,6 +304,46 @@ namespace YAMO.UnityTools.Editor
                 {
                     var report = AvatarBakePreUtilities.RenameToUnityHumanoidNames(_source);
                     LogHumanoidRenameReport(report);
+                }
+
+                EditorGUILayout.Space(2);
+                EditorGUILayout.LabelField("Humanoid Bone Scale Check", EditorStyles.miniBoldLabel);
+                if (GUILayout.Button("Check Bone Scales"))
+                {
+                    var found = YamoAssetCheckerCore.FindHumanoidBonesWithNonOneScale(_source);
+                    _boneScaleSearched = true;
+                    if (found == null)
+                    {
+                        _invalidScaleBones.Clear();
+                        Log("Bone Scale Check: Source is not a Humanoid avatar.");
+                    }
+                    else
+                    {
+                        _invalidScaleBones = found;
+                        if (_invalidScaleBones.Count == 0)
+                            Log("Bone Scale Check: All humanoid bones have scale (1,1,1).");
+                        else
+                            Log($"Bone Scale Check: {_invalidScaleBones.Count} bone(s) with non-(1,1,1) scale found.");
+                    }
+                }
+                if (_boneScaleSearched && _invalidScaleBones.Count > 0)
+                {
+                    EditorGUILayout.LabelField($"Non-(1,1,1) scale bones: {_invalidScaleBones.Count}");
+                    _boneScaleScroll = EditorGUILayout.BeginScrollView(_boneScaleScroll, GUILayout.Height(120));
+                    foreach (var b in _invalidScaleBones)
+                    {
+                        if (b == null) continue;
+                        EditorGUILayout.BeginHorizontal();
+                        EditorGUILayout.ObjectField(b, typeof(Transform), true);
+                        if (GUILayout.Button("Select", GUILayout.Width(60)))
+                        {
+                            Selection.activeGameObject = b.gameObject;
+                            EditorGUIUtility.PingObject(b.gameObject);
+                        }
+                        EditorGUILayout.LabelField(b.localScale.ToString(), GUILayout.Width(150));
+                        EditorGUILayout.EndHorizontal();
+                    }
+                    EditorGUILayout.EndScrollView();
                 }
             }
         }
