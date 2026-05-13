@@ -5,6 +5,7 @@ using YAMO.UnityTools;
 namespace YAMO.UnityTools.Editor
 {
     [CustomEditor(typeof(YamoCam))]
+    [CanEditMultipleObjects]
     public class YamoCamEditor : UnityEditor.Editor
     {
         private SerializedProperty enableFollow, followTargets, positionOffset;
@@ -30,6 +31,7 @@ namespace YAMO.UnityTools.Editor
         private SerializedProperty rotNoiseX, rotNoiseY, rotNoiseZ;
 
         private SerializedProperty updateInEditMode;
+        private SerializedProperty applyPlayModeChangesToEditor;
 
         private void OnEnable()
         {
@@ -84,6 +86,7 @@ namespace YAMO.UnityTools.Editor
             rotNoiseZ = serializedObject.FindProperty("rotNoiseZ");
 
             updateInEditMode = serializedObject.FindProperty("updateInEditMode");
+            applyPlayModeChangesToEditor = serializedObject.FindProperty("applyPlayModeChangesToEditor");
         }
 
         public override void OnInspectorGUI()
@@ -92,7 +95,7 @@ namespace YAMO.UnityTools.Editor
 
             // ── Follow Section ──
             DrawSectionHeader("Follow", enableFollow);
-            if (enableFollow.boolValue)
+            if (enableFollow.boolValue || enableFollow.hasMultipleDifferentValues)
             {
                 EditorGUI.indentLevel++;
                 EditorGUILayout.PropertyField(followTargets, new GUIContent("Targets"), true);
@@ -106,9 +109,9 @@ namespace YAMO.UnityTools.Editor
 
                 EditorGUILayout.LabelField("Local Axis On/Off", EditorStyles.miniLabel);
                 EditorGUILayout.BeginHorizontal();
-                followX.boolValue = EditorGUILayout.ToggleLeft("X", followX.boolValue, GUILayout.Width(40));
-                followY.boolValue = EditorGUILayout.ToggleLeft("Y", followY.boolValue, GUILayout.Width(40));
-                followZ.boolValue = EditorGUILayout.ToggleLeft("Z", followZ.boolValue, GUILayout.Width(40));
+                ToggleLeftMulti("X", followX);
+                ToggleLeftMulti("Y", followY);
+                ToggleLeftMulti("Z", followZ);
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.Space(2);
 
@@ -123,7 +126,7 @@ namespace YAMO.UnityTools.Editor
 
             // ── LookAt Section ──
             DrawSectionHeader("LookAt", enableLookAt);
-            if (enableLookAt.boolValue)
+            if (enableLookAt.boolValue || enableLookAt.hasMultipleDifferentValues)
             {
                 EditorGUI.indentLevel++;
                 EditorGUILayout.PropertyField(lookAtTargets, new GUIContent("Targets"), true);
@@ -137,9 +140,9 @@ namespace YAMO.UnityTools.Editor
 
                 EditorGUILayout.LabelField("Axis On/Off", EditorStyles.miniLabel);
                 EditorGUILayout.BeginHorizontal();
-                rotateX.boolValue = EditorGUILayout.ToggleLeft("X", rotateX.boolValue, GUILayout.Width(40));
-                rotateY.boolValue = EditorGUILayout.ToggleLeft("Y", rotateY.boolValue, GUILayout.Width(40));
-                rotateZ.boolValue = EditorGUILayout.ToggleLeft("Z", rotateZ.boolValue, GUILayout.Width(40));
+                ToggleLeftMulti("X", rotateX);
+                ToggleLeftMulti("Y", rotateY);
+                ToggleLeftMulti("Z", rotateZ);
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.Space(2);
 
@@ -154,7 +157,7 @@ namespace YAMO.UnityTools.Editor
 
             // ── Orbital Section ──
             DrawSectionHeader("Orbital", enableOrbital);
-            if (enableOrbital.boolValue)
+            if (enableOrbital.boolValue || enableOrbital.hasMultipleDifferentValues)
             {
                 EditorGUI.indentLevel++;
                 EditorGUILayout.PropertyField(orbitCenters, new GUIContent("Centers (비워두면 Follow Targets)"), true);
@@ -180,7 +183,7 @@ namespace YAMO.UnityTools.Editor
 
             // ── Noise Section ──
             DrawSectionHeader("Noise (Hand-held)", enableNoise);
-            if (enableNoise.boolValue)
+            if (enableNoise.boolValue || enableNoise.hasMultipleDifferentValues)
             {
                 EditorGUI.indentLevel++;
 
@@ -188,9 +191,9 @@ namespace YAMO.UnityTools.Editor
                 EditorGUILayout.PropertyField(posNoiseAmplitude, new GUIContent("Amplitude (m)"));
                 EditorGUILayout.PropertyField(posNoiseFrequency, new GUIContent("Frequency"));
                 EditorGUILayout.BeginHorizontal();
-                posNoiseX.boolValue = EditorGUILayout.ToggleLeft("X", posNoiseX.boolValue, GUILayout.Width(40));
-                posNoiseY.boolValue = EditorGUILayout.ToggleLeft("Y", posNoiseY.boolValue, GUILayout.Width(40));
-                posNoiseZ.boolValue = EditorGUILayout.ToggleLeft("Z", posNoiseZ.boolValue, GUILayout.Width(40));
+                ToggleLeftMulti("X", posNoiseX);
+                ToggleLeftMulti("Y", posNoiseY);
+                ToggleLeftMulti("Z", posNoiseZ);
                 EditorGUILayout.EndHorizontal();
                 EditorGUILayout.Space(4);
 
@@ -198,9 +201,9 @@ namespace YAMO.UnityTools.Editor
                 EditorGUILayout.PropertyField(rotNoiseAmplitude, new GUIContent("Amplitude (°)"));
                 EditorGUILayout.PropertyField(rotNoiseFrequency, new GUIContent("Frequency"));
                 EditorGUILayout.BeginHorizontal();
-                rotNoiseX.boolValue = EditorGUILayout.ToggleLeft("X", rotNoiseX.boolValue, GUILayout.Width(40));
-                rotNoiseY.boolValue = EditorGUILayout.ToggleLeft("Y", rotNoiseY.boolValue, GUILayout.Width(40));
-                rotNoiseZ.boolValue = EditorGUILayout.ToggleLeft("Z", rotNoiseZ.boolValue, GUILayout.Width(40));
+                ToggleLeftMulti("X", rotNoiseX);
+                ToggleLeftMulti("Y", rotNoiseY);
+                ToggleLeftMulti("Z", rotNoiseZ);
                 EditorGUILayout.EndHorizontal();
 
                 EditorGUI.indentLevel--;
@@ -211,6 +214,9 @@ namespace YAMO.UnityTools.Editor
             // ── Editor Options ──
             EditorGUILayout.LabelField("Editor Options", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(updateInEditMode);
+            EditorGUILayout.PropertyField(applyPlayModeChangesToEditor, new GUIContent(
+                "Apply PlayMode Changes to Editor",
+                "체크 시 PlayMode 종료 후 변경된 세팅값을 Editor에 저장합니다. (Undo 가능)"));
 
             serializedObject.ApplyModifiedProperties();
         }
@@ -218,9 +224,22 @@ namespace YAMO.UnityTools.Editor
         private void DrawSectionHeader(string label, SerializedProperty toggle)
         {
             EditorGUILayout.BeginHorizontal();
-            toggle.boolValue = EditorGUILayout.Toggle(toggle.boolValue, GUILayout.Width(16));
+            EditorGUI.showMixedValue = toggle.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            bool newVal = EditorGUILayout.Toggle(toggle.boolValue, GUILayout.Width(16));
+            if (EditorGUI.EndChangeCheck()) toggle.boolValue = newVal;
+            EditorGUI.showMixedValue = false;
             EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
             EditorGUILayout.EndHorizontal();
+        }
+
+        private static void ToggleLeftMulti(string label, SerializedProperty prop)
+        {
+            EditorGUI.showMixedValue = prop.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            bool newVal = EditorGUILayout.ToggleLeft(label, prop.boolValue, GUILayout.Width(40));
+            if (EditorGUI.EndChangeCheck()) prop.boolValue = newVal;
+            EditorGUI.showMixedValue = false;
         }
     }
 }

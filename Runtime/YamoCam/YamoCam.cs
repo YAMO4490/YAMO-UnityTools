@@ -72,6 +72,7 @@ namespace YAMO.UnityTools
 
         // ── Editor ──
         public bool updateInEditMode = true;
+        public bool applyPlayModeChangesToEditor = false;
 
         private int _followFrameCounter;
         private float _followAccDelta;
@@ -84,6 +85,8 @@ namespace YAMO.UnityTools
 
 #if UNITY_EDITOR
         private double _lastEditorTime;
+        private bool _snapshotPending;
+        private YamoCamSnapshot _snapshot;
 #endif
 
         private void OnEnable()
@@ -105,6 +108,8 @@ namespace YAMO.UnityTools
             _lastEditorTime = EditorApplication.timeSinceStartup;
             EditorApplication.update -= EditorTick;
             EditorApplication.update += EditorTick;
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
 #endif
         }
 
@@ -112,6 +117,14 @@ namespace YAMO.UnityTools
         {
 #if UNITY_EDITOR
             EditorApplication.update -= EditorTick;
+            // playModeStateChanged 구독은 OnDestroy까지 유지 (ExitingPlayMode → OnDisable → EnteredEditMode 순서 때문)
+#endif
+        }
+
+        private void OnDestroy()
+        {
+#if UNITY_EDITOR
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
 #endif
         }
 
@@ -170,6 +183,142 @@ namespace YAMO.UnityTools
             if (enableLookAt) ApplyLookAt(deltaTime);
             if (enableNoise) ApplyNoise(deltaTime);
             EditorApplication.QueuePlayerLoopUpdate();
+        }
+
+        private void OnPlayModeStateChanged(PlayModeStateChange state)
+        {
+            if (state == PlayModeStateChange.ExitingPlayMode)
+            {
+                _snapshotPending = applyPlayModeChangesToEditor;
+                if (_snapshotPending) _snapshot = CaptureSnapshot();
+            }
+            else if (state == PlayModeStateChange.EnteredEditMode && _snapshotPending)
+            {
+                Undo.RecordObject(this, "Apply PlayMode Changes to Editor");
+                ApplySnapshot(_snapshot);
+                EditorUtility.SetDirty(this);
+                _snapshotPending = false;
+            }
+        }
+
+        private YamoCamSnapshot CaptureSnapshot() => new YamoCamSnapshot
+        {
+            enableFollow = enableFollow,
+            followTargets = (Transform[])followTargets.Clone(),
+            positionOffset = positionOffset,
+            followSmoothSpeed = followSmoothSpeed,
+            followDistanceElasticity = followDistanceElasticity,
+            followFrameInterval = followFrameInterval,
+            followX = followX, followY = followY, followZ = followZ,
+            moveRatioX = moveRatioX, moveRatioY = moveRatioY, moveRatioZ = moveRatioZ,
+
+            enableLookAt = enableLookAt,
+            lookAtTargets = (Transform[])lookAtTargets.Clone(),
+            lookAtOffset = lookAtOffset,
+            lookAtSmoothSpeed = lookAtSmoothSpeed,
+            worldUp = worldUp,
+            lookAtFrameInterval = lookAtFrameInterval,
+            rotateX = rotateX, rotateY = rotateY, rotateZ = rotateZ,
+            rotateRatioX = rotateRatioX, rotateRatioY = rotateRatioY, rotateRatioZ = rotateRatioZ,
+
+            enableOrbital = enableOrbital,
+            orbitCenters = (Transform[])orbitCenters.Clone(),
+            orbitHorizontalRadius = orbitHorizontalRadius,
+            orbitHorizontalSpeed = orbitHorizontalSpeed,
+            orbitHorizontalPhaseOffset = orbitHorizontalPhaseOffset,
+            orbitVerticalRadius = orbitVerticalRadius,
+            orbitVerticalSpeed = orbitVerticalSpeed,
+            orbitVerticalPhaseOffset = orbitVerticalPhaseOffset,
+            orbitVerticalAngleMin = orbitVerticalAngleMin,
+            orbitVerticalAngleMax = orbitVerticalAngleMax,
+            orbitHeightOffset = orbitHeightOffset,
+
+            enableNoise = enableNoise,
+            posNoiseAmplitude = posNoiseAmplitude,
+            posNoiseFrequency = posNoiseFrequency,
+            posNoiseX = posNoiseX, posNoiseY = posNoiseY, posNoiseZ = posNoiseZ,
+            rotNoiseAmplitude = rotNoiseAmplitude,
+            rotNoiseFrequency = rotNoiseFrequency,
+            rotNoiseX = rotNoiseX, rotNoiseY = rotNoiseY, rotNoiseZ = rotNoiseZ,
+
+            updateInEditMode = updateInEditMode,
+        };
+
+        private void ApplySnapshot(YamoCamSnapshot s)
+        {
+            enableFollow = s.enableFollow;
+            followTargets = s.followTargets;
+            positionOffset = s.positionOffset;
+            followSmoothSpeed = s.followSmoothSpeed;
+            followDistanceElasticity = s.followDistanceElasticity;
+            followFrameInterval = s.followFrameInterval;
+            followX = s.followX; followY = s.followY; followZ = s.followZ;
+            moveRatioX = s.moveRatioX; moveRatioY = s.moveRatioY; moveRatioZ = s.moveRatioZ;
+
+            enableLookAt = s.enableLookAt;
+            lookAtTargets = s.lookAtTargets;
+            lookAtOffset = s.lookAtOffset;
+            lookAtSmoothSpeed = s.lookAtSmoothSpeed;
+            worldUp = s.worldUp;
+            lookAtFrameInterval = s.lookAtFrameInterval;
+            rotateX = s.rotateX; rotateY = s.rotateY; rotateZ = s.rotateZ;
+            rotateRatioX = s.rotateRatioX; rotateRatioY = s.rotateRatioY; rotateRatioZ = s.rotateRatioZ;
+
+            enableOrbital = s.enableOrbital;
+            orbitCenters = s.orbitCenters;
+            orbitHorizontalRadius = s.orbitHorizontalRadius;
+            orbitHorizontalSpeed = s.orbitHorizontalSpeed;
+            orbitHorizontalPhaseOffset = s.orbitHorizontalPhaseOffset;
+            orbitVerticalRadius = s.orbitVerticalRadius;
+            orbitVerticalSpeed = s.orbitVerticalSpeed;
+            orbitVerticalPhaseOffset = s.orbitVerticalPhaseOffset;
+            orbitVerticalAngleMin = s.orbitVerticalAngleMin;
+            orbitVerticalAngleMax = s.orbitVerticalAngleMax;
+            orbitHeightOffset = s.orbitHeightOffset;
+
+            enableNoise = s.enableNoise;
+            posNoiseAmplitude = s.posNoiseAmplitude;
+            posNoiseFrequency = s.posNoiseFrequency;
+            posNoiseX = s.posNoiseX; posNoiseY = s.posNoiseY; posNoiseZ = s.posNoiseZ;
+            rotNoiseAmplitude = s.rotNoiseAmplitude;
+            rotNoiseFrequency = s.rotNoiseFrequency;
+            rotNoiseX = s.rotNoiseX; rotNoiseY = s.rotNoiseY; rotNoiseZ = s.rotNoiseZ;
+
+            updateInEditMode = s.updateInEditMode;
+        }
+
+        private struct YamoCamSnapshot
+        {
+            public bool enableFollow;
+            public Transform[] followTargets;
+            public Vector3 positionOffset;
+            public float followSmoothSpeed, followDistanceElasticity;
+            public int followFrameInterval;
+            public bool followX, followY, followZ;
+            public float moveRatioX, moveRatioY, moveRatioZ;
+
+            public bool enableLookAt;
+            public Transform[] lookAtTargets;
+            public Vector3 lookAtOffset;
+            public float lookAtSmoothSpeed;
+            public Vector3 worldUp;
+            public int lookAtFrameInterval;
+            public bool rotateX, rotateY, rotateZ;
+            public float rotateRatioX, rotateRatioY, rotateRatioZ;
+
+            public bool enableOrbital;
+            public Transform[] orbitCenters;
+            public float orbitHorizontalRadius, orbitHorizontalSpeed, orbitHorizontalPhaseOffset;
+            public float orbitVerticalRadius, orbitVerticalSpeed, orbitVerticalPhaseOffset;
+            public float orbitVerticalAngleMin, orbitVerticalAngleMax, orbitHeightOffset;
+
+            public bool enableNoise;
+            public float posNoiseAmplitude, posNoiseFrequency;
+            public bool posNoiseX, posNoiseY, posNoiseZ;
+            public float rotNoiseAmplitude, rotNoiseFrequency;
+            public bool rotNoiseX, rotNoiseY, rotNoiseZ;
+
+            public bool updateInEditMode;
         }
 #endif
 
