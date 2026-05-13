@@ -104,7 +104,7 @@ namespace YAMO.UnityTools.Editor
         {
             EditorGUILayout.LabelField("Compositions (multi-select)", EditorStyles.boldLabel);
 
-            // _perColor 길이가 enum 변경으로 어긋나면 보정
+            // _perColor 길이가 enum 변경으로 어긋나면 보정 (알파 포함, 기본값 alpha=1)
             if (_perColor == null || _perColor.Length != CompositionTypeNames.Length)
             {
                 var newArr = new Color[CompositionTypeNames.Length];
@@ -116,8 +116,9 @@ namespace YAMO.UnityTools.Editor
             for (int i = 0; i < CompositionTypeNames.Length; i++)
             {
                 EditorGUILayout.BeginHorizontal();
-                _visible[i] = EditorGUILayout.ToggleLeft(CompositionTypeNames[i], _visible[i], GUILayout.ExpandWidth(true));
-                _perColor[i] = EditorGUILayout.ColorField(GUIContent.none, _perColor[i], false, false, false, GUILayout.Width(60));
+                _visible[i]  = EditorGUILayout.ToggleLeft(CompositionTypeNames[i], _visible[i], GUILayout.ExpandWidth(true));
+                // showAlpha: true → 스와치에 체크무늬로 투명도 표시, 클릭 시 RGBA 피커 오픈
+                _perColor[i] = EditorGUILayout.ColorField(GUIContent.none, _perColor[i], false, true, false, GUILayout.Width(60));
                 EditorGUILayout.EndHorizontal();
             }
             EditorGUILayout.Space(4);
@@ -297,12 +298,12 @@ namespace YAMO.UnityTools.Editor
             GL.PopMatrix();
         }
 
-        /// <summary>항목 색상 × 전역 Tint, 알파는 _opacity 로 통일.</summary>
+        /// <summary>항목 색상 × 전역 Tint, 알파는 항목 색상 알파 × 전역 Opacity.</summary>
         Color ResolveColor(int idx)
         {
             Color per = (_perColor != null && idx < _perColor.Length) ? _perColor[idx] : Color.white;
-            Color c = per * _lineColor;     // RGB 곱하기
-            c.a = _opacity;                  // 알파는 전역 슬라이더
+            Color c = per * _lineColor;      // RGB 곱하기
+            c.a = per.a * _opacity;          // 항목 알파 × 전역 Opacity
             return c;
         }
 
