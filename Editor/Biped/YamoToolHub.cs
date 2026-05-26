@@ -11,12 +11,13 @@
 // 의존:
 //   - AvatarBakePrefabWindow (같은 폴더)
 //   - BipedConverterWindow (Editor/BipedConverter/) — Avatar Bake 탭의 두번째 파트로 임베드
+//   - BipedDeconverterWindow (Editor/BipedConverter/) — Avatar Bake 탭의 세번째 파트로 임베드
 //   - MaterialAndTextureCollectorWindow (Editor/Assets/)
 //   - YamoAssetChecker (Editor/Bones/)
 //   - FacialAnimationBaker, ForearmHingeBaker, AnimClipReducerWindow (Editor/Animation/)
 //
 // 탭 구성 (총 4개):
-//   1. Avatar Bake & Prefab — 두 파트 (Avatar Bake / Biped Converter) 폴드아웃
+//   1. Avatar Bake & Prefab — 세 파트 (Avatar Bake / Biped Converter / Biped Deconverter) 폴드아웃
 //   2. Material & Texture
 //   3. Asset Checker
 //   4. Animation
@@ -47,15 +48,17 @@ namespace YAMO.UnityTools.Editor
 
         [SerializeField] private Tab _activeTab = Tab.AvatarBakePrefab;
 
-        // Avatar Bake & Prefab 탭 내부의 두 파트별 폴드아웃 상태.
-        [SerializeField] private bool _bakePrefabPartFoldout      = true;
-        [SerializeField] private bool _bipedConverterPartFoldout  = true;
+        // Avatar Bake & Prefab 탭 내부의 세 파트별 폴드아웃 상태.
+        [SerializeField] private bool _bakePrefabPartFoldout       = true;
+        [SerializeField] private bool _bipedConverterPartFoldout   = true;
+        [SerializeField] private bool _bipedDeconverterPartFoldout = false;
         private Vector2 _avatarBakeTabScroll;
 
         // 탭별 도구 인스턴스. 허브가 살아 있는 동안 상태를 유지.
-        // BipedConverter 는 별도 탭이 아니라 AvatarBakePrefab 탭의 두번째 파트에 노출.
+        // BipedConverter / BipedDeconverter 는 AvatarBakePrefab 탭의 파트로 임베드.
         private AvatarBakePrefabWindow            _bakePrefabInstance;
         private BipedConverterWindow              _bipedConverterInstance;
+        private BipedDeconverterWindow            _bipedDeconverterInstance;
         private MaterialAndTextureCollectorWindow _materialTextureInstance;
         private YamoAssetChecker                  _assetCheckerInstance;
 
@@ -93,6 +96,8 @@ namespace YAMO.UnityTools.Editor
                 _bakePrefabInstance = ScriptableObject.CreateInstance<AvatarBakePrefabWindow>();
             if (_bipedConverterInstance == null)
                 _bipedConverterInstance = ScriptableObject.CreateInstance<BipedConverterWindow>();
+            if (_bipedDeconverterInstance == null)
+                _bipedDeconverterInstance = ScriptableObject.CreateInstance<BipedDeconverterWindow>();
             if (_materialTextureInstance == null)
                 _materialTextureInstance = ScriptableObject.CreateInstance<MaterialAndTextureCollectorWindow>();
             if (_assetCheckerInstance == null)
@@ -101,10 +106,11 @@ namespace YAMO.UnityTools.Editor
 
         private void OnDisable()
         {
-            if (_bakePrefabInstance != null)      DestroyImmediate(_bakePrefabInstance);
-            if (_bipedConverterInstance != null)  DestroyImmediate(_bipedConverterInstance);
-            if (_materialTextureInstance != null) DestroyImmediate(_materialTextureInstance);
-            if (_assetCheckerInstance != null)    DestroyImmediate(_assetCheckerInstance);
+            if (_bakePrefabInstance != null)       DestroyImmediate(_bakePrefabInstance);
+            if (_bipedConverterInstance != null)   DestroyImmediate(_bipedConverterInstance);
+            if (_bipedDeconverterInstance != null) DestroyImmediate(_bipedDeconverterInstance);
+            if (_materialTextureInstance != null)  DestroyImmediate(_materialTextureInstance);
+            if (_assetCheckerInstance != null)     DestroyImmediate(_assetCheckerInstance);
         }
 
         private void OnGUI()
@@ -138,9 +144,10 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // Avatar Bake & Prefab tab — 두 파트 구성
+        // Avatar Bake & Prefab tab — 세 파트 구성
         //   1. Avatar Bake & Prefab (원본 풀 파이프라인)
         //   2. Biped Converter (Humanoid → 3ds Max Biped 본 변환)
+        //   3. Biped Deconverter (3ds Max Biped → Humanoid 역변환)
         // ============================================================
         private void DrawAvatarBakeTab()
         {
@@ -171,6 +178,21 @@ namespace YAMO.UnityTools.Editor
                 using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                 {
                     if (_bipedConverterInstance != null) _bipedConverterInstance.DrawGUI();
+                }
+            }
+
+            EditorGUILayout.Space(8);
+
+            _bipedDeconverterPartFoldout = EditorGUILayout.Foldout(
+                _bipedDeconverterPartFoldout,
+                "3. Biped Deconverter",
+                toggleOnLabelClick: true,
+                EditorStyles.foldoutHeader);
+            if (_bipedDeconverterPartFoldout)
+            {
+                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                {
+                    if (_bipedDeconverterInstance != null) _bipedDeconverterInstance.DrawGUI();
                 }
             }
 
