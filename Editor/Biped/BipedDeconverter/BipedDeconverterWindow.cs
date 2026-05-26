@@ -5,7 +5,7 @@ namespace YAMO.UnityTools.Editor
 {
     public class BipedDeconverterWindow : EditorWindow
     {
-        [MenuItem("Tools/YAMO/Biped Deconverter")]
+        [MenuItem("Tools/YAMO/Biped/Biped Deconverter")]
         public static void Open()
         {
             var win = GetWindow<BipedDeconverterWindow>("Biped Deconverter");
