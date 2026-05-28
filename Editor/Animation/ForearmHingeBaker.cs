@@ -18,6 +18,7 @@
 
 using UnityEngine;
 using UnityEditor;
+using UnityEditor.ShortcutManagement;
 using System.Collections.Generic;
 
 namespace YAMO.UnityTools.Editor
@@ -32,6 +33,7 @@ namespace YAMO.UnityTools.Editor
         HingeAxis hingeAxis = HingeAxis.Z;
 
         [MenuItem("Tools/YAMO/Animation/Forearm Hinge Baker")]
+        [Shortcut("YAMO/Forearm Hinge Baker", KeyCode.Alpha8, ShortcutModifiers.None)]
         static void Open()
         {
             var win = GetWindow<ForearmHingeBaker>("Forearm Hinge Baker");

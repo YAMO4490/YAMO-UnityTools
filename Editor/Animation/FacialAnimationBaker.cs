@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
+using UnityEditor.ShortcutManagement;
 using UnityEngine;
 
 namespace YAMO.UnityTools.Editor
@@ -54,6 +55,7 @@ namespace YAMO.UnityTools.Editor
         private const string DefaultOutputFolder = "Assets/Facial";
 
         [MenuItem("Tools/YAMO/Animation/Facial Animation Baker")]
+        [Shortcut("YAMO/Facial Animation Baker", KeyCode.Alpha7, ShortcutModifiers.None)]
         public static void ShowWindow()
         {
             var w = GetWindow<FacialAnimationBaker>("Facial Anim Baker");
