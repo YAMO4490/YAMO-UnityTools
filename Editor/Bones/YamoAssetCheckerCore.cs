@@ -346,5 +346,249 @@ namespace YAMO.UnityTools.Editor
                 RootBoneMissing = rootMissing,
             };
         }
+
+        // ============================================================
+        // [7] Smart Empty Object Cleaner
+        // ============================================================
+
+        public class EmptyObjectScanResult
+        {
+            public List<EmptyObjectEntry> Stage1 = new List<EmptyObjectEntry>();
+            public List<EmptyObjectEntry> Stage2 = new List<EmptyObjectEntry>();
+        }
+
+        public class EmptyObjectEntry
+        {
+            public GameObject Object;
+            /// Stage1: 자신 포함 삭제될 총 오브젝트 수
+            /// Stage2: 직속 자식 수 (리패런팅 대상)
+            public int TotalCount;
+        }
+
+        /// <summary>
+        /// root 하위에서 빈 오브젝트를 두 단계로 분류한다.
+        ///   Stage1: 자신+하위 전부 SMR 미참조 → 안전 삭제 가능
+        ///   Stage2: 자신은 미참조이나 하위에 참조 본 존재 → 리패런팅 후 삭제 가능
+        /// 비활성 SkinnedMeshRenderer 의 본 참조도 모두 포함한다.
+        /// </summary>
+        public static EmptyObjectScanResult ScanEmptyObjects(GameObject root)
+        {
+            var result = new EmptyObjectScanResult();
+            if (root == null) return result;
+
+            var rootT = root.transform;
+
+            // [A] 모든 SMR (비활성 포함) 에서 참조 본 수집
+            var smrs = rootT.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            var referencedBones = new HashSet<Transform>();
+            foreach (var smr in smrs)
+            {
+                if (smr.bones != null)
+                    foreach (var b in smr.bones) if (b != null) referencedBones.Add(b);
+                if (smr.rootBone != null) referencedBones.Add(smr.rootBone);
+            }
+
+            // [B] Protected set 구성
+            //   · 아바타 루트 자체
+            //   · rootT 의 직속 자식 중 참조 본을 자손으로 보유한 것 (topArmatureRoot)
+            var protectedSet = new HashSet<Transform>();
+            protectedSet.Add(rootT);
+            for (int i = 0; i < rootT.childCount; i++)
+            {
+                var child = rootT.GetChild(i);
+                if (EmptyCleanerHasRefOrRefDescendant(child, referencedBones))
+                    protectedSet.Add(child);
+            }
+
+            // [C] bottom-up 으로 "완전 삭제 가능" 여부 캐시 구성
+            //     GetComponentsInChildren 은 depth-first 순서 → 역순 = bottom-up
+            var allTransforms = rootT.GetComponentsInChildren<Transform>(true);
+            var deletable = new HashSet<Transform>();
+
+            for (int i = allTransforms.Length - 1; i >= 0; i--)
+            {
+                var t = allTransforms[i];
+                if (t == rootT) continue;
+                if (protectedSet.Contains(t)) continue;
+                if (referencedBones.Contains(t)) continue;
+                if (EmptyCleanerHasNonTransformComp(t)) continue;
+
+                bool allChildDeletable = true;
+                for (int c = 0; c < t.childCount; c++)
+                {
+                    if (!deletable.Contains(t.GetChild(c))) { allChildDeletable = false; break; }
+                }
+                if (allChildDeletable) deletable.Add(t);
+            }
+
+            // [D] Stage1: deletable 이며 부모가 deletable 이 아닌 것 (삭제 서브트리의 루트)
+            foreach (var t in allTransforms)
+            {
+                if (!deletable.Contains(t)) continue;
+                if (t.parent != null && deletable.Contains(t.parent)) continue;
+
+                result.Stage1.Add(new EmptyObjectEntry
+                {
+                    Object     = t.gameObject,
+                    TotalCount = 1 + EmptyCleanerCountDescendantsInSet(t, deletable),
+                });
+            }
+
+            // [E] Stage2: 자신은 빈 오브젝트, 하위에 참조 본 존재
+            var ancestorOfRef = new HashSet<Transform>();
+            foreach (var bone in referencedBones)
+            {
+                var cur = bone.parent;
+                while (cur != null && cur != rootT)
+                {
+                    ancestorOfRef.Add(cur);
+                    cur = cur.parent;
+                }
+            }
+
+            foreach (var t in allTransforms)
+            {
+                if (t == rootT) continue;
+                if (protectedSet.Contains(t)) continue;
+                if (referencedBones.Contains(t)) continue;
+                if (EmptyCleanerHasNonTransformComp(t)) continue;
+                if (deletable.Contains(t)) continue;           // Stage1 에서 처리
+                if (!ancestorOfRef.Contains(t)) continue;
+
+                result.Stage2.Add(new EmptyObjectEntry
+                {
+                    Object     = t.gameObject,
+                    TotalCount = t.childCount,
+                });
+            }
+
+            return result;
+        }
+
+        /// <summary>Stage1 전체 삭제. Undo 가능. 삭제된 총 오브젝트 수를 반환.</summary>
+        public static int ExecuteStage1(List<EmptyObjectEntry> entries)
+        {
+            if (entries == null || entries.Count == 0) return 0;
+
+            Undo.SetCurrentGroupName("Smart Empty Cleaner: Stage 1");
+            int group = Undo.GetCurrentGroup();
+
+            // 깊은 오브젝트부터 처리 (bottom-up 안전 순서)
+            var sorted = new List<EmptyObjectEntry>(entries);
+            sorted.Sort((a, b) => EmptyCleanerGetDepth(b.Object.transform)
+                                 - EmptyCleanerGetDepth(a.Object.transform));
+
+            int total = 0;
+            foreach (var e in sorted)
+            {
+                if (e.Object == null) continue;
+                total += e.TotalCount;
+                Undo.DestroyObjectImmediate(e.Object);
+            }
+
+            Undo.CollapseUndoOperations(group);
+            return total;
+        }
+
+        /// <summary>Stage2 선택 항목을 리패런팅 후 삭제. Undo 가능. 삭제된 오브젝트 수 반환.</summary>
+        public static int ExecuteStage2Selected(List<EmptyObjectEntry> entries, IList<bool> selected)
+        {
+            if (entries == null || entries.Count == 0) return 0;
+
+            Undo.SetCurrentGroupName("Smart Empty Cleaner: Stage 2");
+            int group = Undo.GetCurrentGroup();
+
+            var toProcess = new List<EmptyObjectEntry>();
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (i < selected.Count && selected[i] && entries[i].Object != null)
+                    toProcess.Add(entries[i]);
+            }
+            // bottom-up: 중첩 Stage2 처리 시 깊은 것부터
+            toProcess.Sort((a, b) => EmptyCleanerGetDepth(b.Object.transform)
+                                    - EmptyCleanerGetDepth(a.Object.transform));
+
+            int count = 0;
+            foreach (var e in toProcess)
+            {
+                if (e.Object == null) continue;
+                var t      = e.Object.transform;
+                var parent = t.parent;
+
+                // 실행 시점에 직속 자식 수집 (이전 처리에서 변경됐을 수 있음)
+                var children = new List<Transform>(t.childCount);
+                for (int i = 0; i < t.childCount; i++) children.Add(t.GetChild(i));
+
+                foreach (var child in children)
+                    Undo.SetTransformParent(child, parent, "Smart Empty Cleaner: Reparent");
+
+                Undo.DestroyObjectImmediate(e.Object);
+                count++;
+            }
+
+            Undo.CollapseUndoOperations(group);
+            return count;
+        }
+
+        // ── 내부 헬퍼 (EmptyCleaner 전용) ─────────────────────────────────────────
+
+        private static bool EmptyCleanerHasRefOrRefDescendant(Transform t, HashSet<Transform> refs)
+        {
+            if (refs.Contains(t)) return true;
+            for (int i = 0; i < t.childCount; i++)
+                if (EmptyCleanerHasRefOrRefDescendant(t.GetChild(i), refs)) return true;
+            return false;
+        }
+
+        private static bool EmptyCleanerHasNonTransformComp(Transform t)
+        {
+            foreach (var c in t.GetComponents<Component>())
+            {
+                if (c == null || c is Transform) continue;
+                return true;
+            }
+            return false;
+        }
+
+        private static int EmptyCleanerCountDescendantsInSet(Transform t, HashSet<Transform> set)
+        {
+            int n = 0;
+            for (int i = 0; i < t.childCount; i++)
+            {
+                var child = t.GetChild(i);
+                if (set.Contains(child))
+                    n += 1 + EmptyCleanerCountDescendantsInSet(child, set);
+            }
+            return n;
+        }
+
+        private static int EmptyCleanerGetDepth(Transform t)
+        {
+            int d = 0;
+            while (t.parent != null) { d++; t = t.parent; }
+            return d;
+        }
+
+        // ============================================================
+        // [8] Inactive Object Finder
+        // ============================================================
+
+        /// <summary>
+        /// root 하위에서 activeSelf == false 인 오브젝트를 모두 찾아 반환.
+        /// 비활성 부모의 자식도 포함한다.
+        /// </summary>
+        public static List<GameObject> FindInactiveObjects(GameObject root)
+        {
+            var result = new List<GameObject>();
+            if (root == null) return result;
+
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.gameObject == root) continue;
+                if (!t.gameObject.activeSelf)
+                    result.Add(t.gameObject);
+            }
+            return result;
+        }
     }
 }

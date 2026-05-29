@@ -17,6 +17,10 @@ namespace YAMO.UnityTools
     [AddComponentMenu("YAMO/Blend Shape Look At")]
     public class BlendShapeLookAt : MonoBehaviour
     {
+        [Header("전역 제어")]
+        [Tooltip("시선 추적 활성화 여부 (타임라인 애니메이션으로 On/Off 제어 가능)")]
+        public bool active = true;
+
         [Header("참조")]
         [Tooltip("시선 블렌드셰이프가 있는 SkinnedMeshRenderer (Face 메시)")]
         public SkinnedMeshRenderer faceMesh;
@@ -104,6 +108,15 @@ namespace YAMO.UnityTools
 
         void LateUpdate()
         {
+            if (!active)
+            {
+                if (faceMesh != null)
+                    for (int i = 0; i < 8; i++)
+                        SetWeight(i, 0f);
+                _curH = _curV = _velH = _velV = 0f;
+                return;
+            }
+
             var t = target;
             if (t == null)
             {

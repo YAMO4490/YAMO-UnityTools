@@ -60,6 +60,22 @@ namespace YAMO.UnityTools.Editor
         // EditorWindow 인스턴스를 임베드해 자체 상태(소스/매핑)를 보유.
         private HumanoidBoneExtractorWindow _humanoidExtractorInstance;
 
+        // ---- 섹션 7: Smart Empty Object Cleaner ----
+        private bool _foldEmptyCleaner = true;
+
+        // ---- 섹션 8: Inactive Object Finder ----
+        private bool _foldInactiveObjects = true;
+        private GameObject _inactiveFinderRoot;
+        private List<GameObject> _inactiveObjects = new List<GameObject>();
+        private bool _inactiveSearched = false;
+        private Vector2 _inactiveScroll;
+        private GameObject _emptyCleanerRoot;
+        private YamoAssetCheckerCore.EmptyObjectScanResult _emptyCleanerResult;
+        private bool _emptyCleanerScanned = false;
+        private List<bool> _stage2Selected = new List<bool>();
+        private Vector2 _stage1Scroll;
+        private Vector2 _stage2Scroll;
+
         [MenuItem("Tools/YAMO/Bones/YAMO Asset Checker")]
         public static void ShowWindow()
         {
@@ -100,6 +116,8 @@ namespace YAMO.UnityTools.Editor
             DrawMissingScriptsSection();
             DrawMissingBonesSection();
             DrawHumanoidExtractorSection();
+            DrawSmartEmptyCleanerSection();
+            DrawInactiveObjectsSection();
 
             EditorGUILayout.EndScrollView();
         }
@@ -441,6 +459,293 @@ namespace YAMO.UnityTools.Editor
                 if (r.RootBoneMissing) total++;
             }
             Debug.LogWarning($"[AssetChecker] '{scope}' 검사 완료: {_missingBoneResults.Count}개 SMR / 총 {total}개 누락 본.");
+        }
+
+        // ============================================================
+        // 공통
+        // ============================================================
+        // ============================================================
+        // 섹션 7: Smart Empty Object Cleaner
+        // ============================================================
+        private void DrawSmartEmptyCleanerSection()
+        {
+            DrawSeparator();
+            _foldEmptyCleaner = EditorGUILayout.Foldout(_foldEmptyCleaner, "7. Smart Empty Object Cleaner", true, EditorStyles.foldoutHeader);
+            if (!_foldEmptyCleaner) return;
+
+            EditorGUI.indentLevel++;
+            EditorGUILayout.HelpBox(
+                "SkinnedMeshRenderer 에 참조되지 않는 빈 오브젝트를 탐지하고 제거합니다.\n" +
+                "비활성 SMR 의 본 참조도 모두 추적합니다.\n" +
+                "실행 시 원본은 유지되고 사본을 생성해 해당 사본에서 작업합니다.",
+                MessageType.None);
+
+            _emptyCleanerRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _emptyCleanerRoot, typeof(GameObject), true);
+
+            using (new EditorGUI.DisabledScope(_emptyCleanerRoot == null))
+            {
+                if (GUILayout.Button("Scan"))
+                {
+                    _emptyCleanerResult  = YamoAssetCheckerCore.ScanEmptyObjects(_emptyCleanerRoot);
+                    _emptyCleanerScanned = true;
+                    RebuildStage2Selection();
+                }
+            }
+
+            if (!_emptyCleanerScanned || _emptyCleanerResult == null)
+            {
+                EditorGUI.indentLevel--;
+                return;
+            }
+
+            // ── 1단계 ──────────────────────────────────────────────────
+            EditorGUILayout.Space(6);
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("1단계: 완전 미참조 오브젝트 삭제", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(
+                    "자신과 모든 하위 오브젝트가 어떤 SMR 에도 참조되지 않는 빈 오브젝트.",
+                    EditorStyles.wordWrappedMiniLabel);
+                EditorGUILayout.Space(2);
+
+                var s1 = _emptyCleanerResult.Stage1;
+                if (s1.Count == 0)
+                {
+                    EditorGUILayout.HelpBox("삭제 가능한 완전 미참조 오브젝트가 없습니다.", MessageType.Info);
+                }
+                else
+                {
+                    int totalObjs = EmptyCleanerSumTotal(s1);
+                    EditorGUILayout.LabelField($"발견: {s1.Count}개 루트  (하위 포함 총 {totalObjs}개 삭제)");
+
+                    _stage1Scroll = EditorGUILayout.BeginScrollView(_stage1Scroll, GUILayout.Height(110));
+                    foreach (var entry in s1)
+                    {
+                        if (entry.Object == null) continue;
+                        EditorGUILayout.BeginHorizontal();
+                        using (new EditorGUI.DisabledScope(true))
+                            EditorGUILayout.ObjectField(entry.Object, typeof(GameObject), true);
+                        if (entry.TotalCount > 1)
+                            EditorGUILayout.LabelField($"(+{entry.TotalCount - 1})", GUILayout.Width(44));
+                        if (GUILayout.Button("▶", GUILayout.Width(24)))
+                        {
+                            Selection.activeGameObject = entry.Object;
+                            EditorGUIUtility.PingObject(entry.Object);
+                        }
+                        EditorGUILayout.EndHorizontal();
+                    }
+                    EditorGUILayout.EndScrollView();
+
+                    EditorGUILayout.BeginHorizontal();
+                    if (GUILayout.Button("Console Preview"))
+                    {
+                        foreach (var e in s1)
+                            if (e.Object != null)
+                                Debug.Log($"[EmptyCleaner] Stage1 삭제 대상: {EmptyCleanerBuildPath(e.Object.transform)}  (총 {e.TotalCount}개)", e.Object);
+                    }
+
+                    var prevBg = GUI.backgroundColor;
+                    GUI.backgroundColor = new Color(1f, 0.45f, 0.45f);
+                    bool clickedStage1 = GUILayout.Button($"1단계 삭제  ({s1.Count}개 루트)");
+                    GUI.backgroundColor = prevBg;
+                    EditorGUILayout.EndHorizontal();
+
+                    if (clickedStage1 && EditorUtility.DisplayDialog("Smart Empty Object Cleaner",
+                        $"원본을 유지하고 사본을 생성한 뒤, 사본에서 1단계를 실행합니다.\n" +
+                        $"삭제 대상: {s1.Count}개 루트 (총 {totalObjs}개)\nUndo 가능합니다.",
+                        "사본으로 실행", "취소"))
+                    {
+                        var copy       = DuplicateForCleaner(_emptyCleanerRoot);
+                        var copyResult = YamoAssetCheckerCore.ScanEmptyObjects(copy);
+                        int n          = YamoAssetCheckerCore.ExecuteStage1(copyResult.Stage1);
+                        Debug.Log($"[EmptyCleaner] 1단계 완료: 사본 '{copy.name}' 에서 {n}개 삭제. 원본은 유지됩니다.", copy);
+                    }
+                }
+            }
+
+            // ── 2단계 ──────────────────────────────────────────────────
+            EditorGUILayout.Space(4);
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("2단계: 하위에 본이 있는 빈 컨테이너", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(
+                    "자신은 미참조이지만 하위에 참조 본을 가진 오브젝트. 삭제 시 직속 자식들이 부모로 리패런팅됩니다.",
+                    EditorStyles.wordWrappedMiniLabel);
+                EditorGUILayout.Space(2);
+
+                var s2 = _emptyCleanerResult.Stage2;
+                if (s2.Count == 0)
+                {
+                    EditorGUILayout.HelpBox("해당 오브젝트가 없습니다.", MessageType.Info);
+                }
+                else
+                {
+                    EditorGUILayout.HelpBox("삭제 시 직속 자식들이 부모 위치로 올라갑니다. 신중하게 선택하세요.", MessageType.Warning);
+                    EditorGUILayout.LabelField($"발견: {s2.Count}개");
+
+                    EditorGUILayout.BeginHorizontal();
+                    if (GUILayout.Button("전체 선택", GUILayout.Width(80)))
+                        for (int i = 0; i < _stage2Selected.Count; i++) _stage2Selected[i] = true;
+                    if (GUILayout.Button("전체 해제", GUILayout.Width(80)))
+                        for (int i = 0; i < _stage2Selected.Count; i++) _stage2Selected[i] = false;
+                    EditorGUILayout.EndHorizontal();
+
+                    _stage2Scroll = EditorGUILayout.BeginScrollView(_stage2Scroll, GUILayout.Height(150));
+                    for (int i = 0; i < s2.Count; i++)
+                    {
+                        if (i >= _stage2Selected.Count) break;
+                        var entry = s2[i];
+                        if (entry.Object == null) continue;
+
+                        EditorGUILayout.BeginHorizontal();
+                        _stage2Selected[i] = EditorGUILayout.Toggle(_stage2Selected[i], GUILayout.Width(18));
+                        using (new EditorGUI.DisabledScope(true))
+                            EditorGUILayout.ObjectField(entry.Object, typeof(GameObject), true);
+                        EditorGUILayout.LabelField($"자식 {entry.TotalCount}개", GUILayout.Width(60));
+                        if (GUILayout.Button("▶", GUILayout.Width(24)))
+                        {
+                            Selection.activeGameObject = entry.Object;
+                            EditorGUIUtility.PingObject(entry.Object);
+                        }
+                        EditorGUILayout.EndHorizontal();
+                    }
+                    EditorGUILayout.EndScrollView();
+
+                    int selCount = 0;
+                    for (int i = 0; i < _stage2Selected.Count; i++) if (_stage2Selected[i]) selCount++;
+
+                    var prevBg2 = GUI.backgroundColor;
+                    if (selCount > 0) GUI.backgroundColor = new Color(1f, 0.65f, 0.3f);
+                    using (new EditorGUI.DisabledScope(selCount == 0))
+                    {
+                        bool clickedStage2 = GUILayout.Button($"선택 항목 삭제  ({selCount}개)");
+                        GUI.backgroundColor = prevBg2;
+
+                        if (clickedStage2 && EditorUtility.DisplayDialog("Smart Empty Object Cleaner",
+                            $"원본을 유지하고 사본을 생성한 뒤, 사본에서 2단계를 실행합니다.\n" +
+                            $"선택 항목: {selCount}개 (리패런팅 후 삭제)\nUndo 가능합니다.",
+                            "사본으로 실행", "취소"))
+                        {
+                            var copy       = DuplicateForCleaner(_emptyCleanerRoot);
+                            var copyResult = YamoAssetCheckerCore.ScanEmptyObjects(copy);
+                            int n          = YamoAssetCheckerCore.ExecuteStage2Selected(copyResult.Stage2, _stage2Selected);
+                            Debug.Log($"[EmptyCleaner] 2단계 완료: 사본 '{copy.name}' 에서 {n}개 삭제. 원본은 유지됩니다.", copy);
+                        }
+                    }
+                }
+            }
+
+            EditorGUI.indentLevel--;
+        }
+
+        private static GameObject DuplicateForCleaner(GameObject original)
+        {
+            var copy = Object.Instantiate(original, original.transform.parent);
+            copy.name = original.name + " (Cleaned)";
+            copy.transform.SetSiblingIndex(original.transform.GetSiblingIndex() + 1);
+            // Execute 내부의 Undo.CollapseUndoOperations 가 이 등록을 함께 묶어줌
+            Undo.RegisterCreatedObjectUndo(copy, "Smart Empty Cleaner: Create Copy");
+            return copy;
+        }
+
+        private void RescanEmptyCleaner()
+        {
+            if (_emptyCleanerRoot == null) return;
+            _emptyCleanerResult = YamoAssetCheckerCore.ScanEmptyObjects(_emptyCleanerRoot);
+            RebuildStage2Selection();
+        }
+
+        private void RebuildStage2Selection()
+        {
+            _stage2Selected.Clear();
+            if (_emptyCleanerResult == null) return;
+            foreach (var _ in _emptyCleanerResult.Stage2) _stage2Selected.Add(false);
+        }
+
+        private static int EmptyCleanerSumTotal(List<YamoAssetCheckerCore.EmptyObjectEntry> list)
+        {
+            int n = 0;
+            foreach (var e in list) n += e.TotalCount;
+            return n;
+        }
+
+        private static string EmptyCleanerBuildPath(Transform t)
+        {
+            if (t.parent == null) return t.name;
+            return EmptyCleanerBuildPath(t.parent) + "/" + t.name;
+        }
+
+        // ============================================================
+        // 섹션 8: Inactive Object Finder
+        // ============================================================
+        private void DrawInactiveObjectsSection()
+        {
+            DrawSeparator();
+            _foldInactiveObjects = EditorGUILayout.Foldout(_foldInactiveObjects, "8. Inactive Object Finder", true, EditorStyles.foldoutHeader);
+            if (!_foldInactiveObjects) return;
+
+            EditorGUI.indentLevel++;
+            EditorGUILayout.HelpBox(
+                "Target Root 하위에서 비활성화(activeSelf = false)된 오브젝트를 탐색합니다.\n" +
+                "비활성 부모의 자식도 모두 포함됩니다.",
+                MessageType.None);
+
+            _inactiveFinderRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _inactiveFinderRoot, typeof(GameObject), true);
+
+            using (new EditorGUI.DisabledScope(_inactiveFinderRoot == null))
+            {
+                if (GUILayout.Button("Scan"))
+                {
+                    _inactiveObjects  = YamoAssetCheckerCore.FindInactiveObjects(_inactiveFinderRoot);
+                    _inactiveSearched = true;
+                }
+            }
+
+            if (_inactiveSearched)
+            {
+                EditorGUILayout.Space(2);
+                if (_inactiveObjects.Count == 0)
+                {
+                    EditorGUILayout.HelpBox("비활성화된 오브젝트가 없습니다.", MessageType.Info);
+                }
+                else
+                {
+                    EditorGUILayout.LabelField($"발견: {_inactiveObjects.Count}개");
+
+                    EditorGUILayout.BeginHorizontal();
+                    if (GUILayout.Button("에디터에서 전체 선택"))
+                    {
+                        var arr = new Object[_inactiveObjects.Count];
+                        for (int i = 0; i < _inactiveObjects.Count; i++) arr[i] = _inactiveObjects[i];
+                        Selection.objects = arr;
+                    }
+                    if (GUILayout.Button("Console 출력"))
+                    {
+                        foreach (var go in _inactiveObjects)
+                            if (go != null)
+                                Debug.Log($"[InactiveFinder] 비활성: {EmptyCleanerBuildPath(go.transform)}", go);
+                    }
+                    EditorGUILayout.EndHorizontal();
+
+                    _inactiveScroll = EditorGUILayout.BeginScrollView(_inactiveScroll, GUILayout.Height(180));
+                    foreach (var go in _inactiveObjects)
+                    {
+                        if (go == null) continue;
+                        EditorGUILayout.BeginHorizontal();
+                        using (new EditorGUI.DisabledScope(true))
+                            EditorGUILayout.ObjectField(go, typeof(GameObject), true);
+                        if (GUILayout.Button("▶", GUILayout.Width(24)))
+                        {
+                            Selection.activeGameObject = go;
+                            EditorGUIUtility.PingObject(go);
+                        }
+                        EditorGUILayout.EndHorizontal();
+                    }
+                    EditorGUILayout.EndScrollView();
+                }
+            }
+
+            EditorGUI.indentLevel--;
         }
 
         // ============================================================
