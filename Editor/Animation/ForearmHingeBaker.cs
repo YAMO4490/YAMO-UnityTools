@@ -1,99 +1,179 @@
 // ForearmHingeBaker.cs
-// Humanoid 애니메이션 클립에서 Forearm의 비-힌지 회전 성분을 제거하고,
-// UpperArm 회전을 보정하여 Hand가 원래 방향을 유지하도록 합니다.
-// Biped의 단축(힌지) Forearm과 호환되는 Generic 클립을 생성합니다.
+// Humanoid 애니메이션 클립에서 Forearm 힌지 보정 후 Generic 클립을 생성합니다.
 //
-// 알고리즘:
-// 1. 원본 포즈에서 Hand 월드 위치/회전을 기록
-// 2. Forearm 힌지각을 해석적으로 풀이 — Hand가 그리는 원 위에서 원본 Hand에 가장 가까운 점
-// 3. UpperArm을 최소한으로 보정하여 Hand가 원래 방향을 가리키도록
-// 4. Hand 월드 회전을 원본으로 복원
+// 베이크 모드 두 가지:
+//   Edit Mode 베이크  - 기존 방식. AnimationMode.SampleAnimationClip 사용.
+//                      클립에 저장된 foot IK goal은 반영되나,
+//                      런타임 foot stabilization은 반영 안 됨.
 //
-// 사용법:
-// 1. 씬에 Animator + Avatar가 설정된 캐릭터 배치
-// 2. Tools > YAMO > Animation > Forearm Hinge Baker
-// 3. Animator와 소스 클립 지정
-// 4. 힌지축 설정 (Forearm이 구부러지는 로컬 축)
-// 5. Bake 실행 → _hinged.anim 파일 생성
+//   Play Mode 베이크  - 실제 Play Mode에서 Animator를 구동하여 샘플링.
+//                      animator.Update(dt)로 Humanoid 전체 파이프라인(foot IK,
+//                      stabilization 포함)이 적용된 상태로 기록.
+//                      팔뚝 힌지 보정은 ForearmHingeRecorder가 실시간으로 적용.
 
 using UnityEngine;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEditor.ShortcutManagement;
 using System.Collections.Generic;
+using System.IO;
 
 namespace YAMO.UnityTools.Editor
 {
+    // ================================================================
+    // [InitializeOnLoad] 브릿지: 도메인 리로드 후에도 콜백 유지
+    // ================================================================
+    [InitializeOnLoad]
+    static class ForearmHingeBakerBridge
+    {
+        const string K_PENDING  = "YAMO.ForearmHinge.PendingBake";
+        const string K_NEWPATH  = "YAMO.ForearmHinge.NewClipPath";
+        const string K_RATE     = "YAMO.ForearmHinge.SampleRate";
+        const string K_GOID     = "YAMO.ForearmHinge.AnimGOInstanceID";
+        const string K_TMPCTRL  = "YAMO.ForearmHinge.TempCtrlPath";
+        const string K_ORIGCTRL = "YAMO.ForearmHinge.OrigCtrlPath";
+
+        static ForearmHingeBakerBridge()
+        {
+            EditorApplication.playModeStateChanged += OnPlayModeChanged;
+        }
+
+        static void OnPlayModeChanged(PlayModeStateChange state)
+        {
+            if (state != PlayModeStateChange.EnteredEditMode) return;
+            if (!SessionState.GetBool(K_PENDING, false)) return;
+
+            string resultsPath = YAMO.UnityTools.ForearmHingeRecorder.ResultsFilePath;
+            string newClipPath = SessionState.GetString(K_NEWPATH, "");
+            int    sampleRate  = SessionState.GetInt(K_RATE, 30);
+            string tmpCtrlPath = SessionState.GetString(K_TMPCTRL, "");
+            string origCtrlPath= SessionState.GetString(K_ORIGCTRL, "");
+            int    goInstanceID= SessionState.GetInt(K_GOID, 0);
+
+            // SessionState 초기화
+            SessionState.EraseBool(K_PENDING);
+            SessionState.EraseString(K_NEWPATH);
+            SessionState.EraseInt(K_RATE);
+            SessionState.EraseInt(K_GOID);
+            SessionState.EraseString(K_TMPCTRL);
+            SessionState.EraseString(K_ORIGCTRL);
+
+            // Recorder 컴포넌트 제거 + 원본 컨트롤러 복원
+            var go = EditorUtility.InstanceIDToObject(goInstanceID) as GameObject;
+            if (go != null)
+            {
+                var recorder = go.GetComponent<YAMO.UnityTools.ForearmHingeRecorder>();
+                if (recorder != null) Object.DestroyImmediate(recorder);
+
+                var anim = go.GetComponent<Animator>();
+                if (anim != null && !string.IsNullOrEmpty(origCtrlPath))
+                {
+                    var origCtrl = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(origCtrlPath);
+                    anim.runtimeAnimatorController = origCtrl;
+                }
+            }
+
+            // 임시 컨트롤러 삭제
+            if (!string.IsNullOrEmpty(tmpCtrlPath) && !string.IsNullOrEmpty(AssetDatabase.AssetPathToGUID(tmpCtrlPath)))
+                AssetDatabase.DeleteAsset(tmpCtrlPath);
+
+            // 결과 읽기 & 베이크
+            if (!File.Exists(resultsPath))
+            {
+                Debug.LogWarning("[ForearmHingeBaker] 녹화 결과 파일 없음 - Play Mode 베이크 취소");
+                return;
+            }
+
+            ForearmHingeBaker.BakeFromResultFile(resultsPath, newClipPath, sampleRate);
+
+            try { File.Delete(resultsPath); } catch { /* 이미 삭제됐으면 무시 */ }
+        }
+    }
+
+    // ================================================================
+    // EditorWindow
+    // ================================================================
     public class ForearmHingeBaker : EditorWindow
     {
-        Animator animator;
+        private static ForearmHingeBaker _instance;
+
+        Animator      animator;
         AnimationClip sourceClip;
-        int sampleRate = 30;
+        int           sampleRate = 30;
 
         enum HingeAxis { X, Y, Z }
         HingeAxis hingeAxis = HingeAxis.Z;
+
+        const string TempCtrlPath = "Assets/__YAMO_ForearmHingeTempCtrl__.controller";
 
         [MenuItem("Tools/YAMO/Animation/Forearm Hinge Baker")]
         [Shortcut("YAMO/Forearm Hinge Baker", KeyCode.Alpha8, ShortcutModifiers.None)]
         static void Open()
         {
+            if (_instance != null) { _instance.Close(); return; }
             var win = GetWindow<ForearmHingeBaker>("Forearm Hinge Baker");
-            win.minSize = new Vector2(350, 280);
+            win.minSize = new Vector2(350, 310);
         }
+
+        private void OnEnable()  => _instance = this;
+        private void OnDisable() => _instance = null;
 
         void OnGUI()
         {
             EditorGUILayout.Space(4);
-            animator = EditorGUILayout.ObjectField("Animator (씬)", animator, typeof(Animator), true) as Animator;
-            sourceClip = EditorGUILayout.ObjectField("소스 클립", sourceClip, typeof(AnimationClip), false) as AnimationClip;
+            animator   = EditorGUILayout.ObjectField("Animator (씬)", animator,   typeof(Animator),      true)  as Animator;
+            sourceClip = EditorGUILayout.ObjectField("소스 클립",     sourceClip, typeof(AnimationClip), false) as AnimationClip;
 
             EditorGUILayout.Space(4);
             sampleRate = EditorGUILayout.IntSlider("샘플레이트 (fps)", sampleRate, 1, 120);
-            hingeAxis = (HingeAxis)EditorGUILayout.EnumPopup("Forearm 힌지축 (로컬)", hingeAxis);
+            hingeAxis  = (HingeAxis)EditorGUILayout.EnumPopup("Forearm 힌지축 (로컬)", hingeAxis);
 
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(
-                "Forearm 힌지각을 해석적으로 풀이합니다.\n" +
-                "Hand가 힌지 회전으로 그리는 원 위에서 원본 위치에 가장 가까운 점을 찾고,\n" +
-                "UpperArm을 최소한으로 보정합니다.\n\n" +
-                "출력은 Generic 클립 (bone localRotation 기반)입니다.",
+                "Edit Mode 베이크: AnimationMode 샘플링 (빠름, foot IK goal 반영)\n" +
+                "Play Mode 베이크: 실제 런타임 실행 (느림, foot stabilization까지 반영)\n\n" +
+                "Play Mode 베이크는 임시 AnimatorController를 생성하고\n" +
+                "캐릭터에 ForearmHingeRecorder를 붙여 Play Mode를 자동 진행합니다.\n" +
+                "완료 후 자동으로 Edit Mode로 복귀하며 클립이 저장됩니다.",
                 MessageType.Info);
 
             EditorGUILayout.Space(4);
-            GUI.enabled = animator != null && sourceClip != null;
-            if (GUILayout.Button("Bake", GUILayout.Height(30)))
-                Bake();
+            bool ready = animator != null && sourceClip != null;
+            GUI.enabled = ready;
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Edit Mode 베이크",  GUILayout.Height(30))) BakeEditMode();
+            if (GUILayout.Button("Play Mode 베이크",  GUILayout.Height(30))) BakePlayMode();
+            EditorGUILayout.EndHorizontal();
+
             GUI.enabled = true;
         }
 
         // ============================================================
-        // Core
+        // Edit Mode 베이크 (기존 방식)
         // ============================================================
-        void Bake()
+        void BakeEditMode()
         {
             var go = animator.gameObject;
 
-            // 양쪽 팔 트리플렛: upper, lower, hand
             var armTriplets = new (HumanBodyBones upper, HumanBodyBones lower, HumanBodyBones hand)[]
             {
                 (HumanBodyBones.LeftUpperArm,  HumanBodyBones.LeftLowerArm,  HumanBodyBones.LeftHand),
                 (HumanBodyBones.RightUpperArm, HumanBodyBones.RightLowerArm, HumanBodyBones.RightHand),
             };
 
-            // 본 계층 수집 (루트 자식부터, path = 상대경로)
-            var allBones = new List<Transform>();
+            var allBones  = new List<Transform>();
             var bonePaths = new Dictionary<Transform, string>();
-            foreach (Transform child in go.transform)
-                CollectHierarchy(child, child.name, allBones, bonePaths);
+            CollectHumanoidBones(animator, allBones, bonePaths);
 
             if (allBones.Count == 0)
             {
-                EditorUtility.DisplayDialog("오류", "Animator 하위에 본이 없습니다.", "OK");
+                EditorUtility.DisplayDialog("오류", "Humanoid 매핑 본을 찾을 수 없습니다.\nAvatar가 올바르게 설정되어 있는지 확인하세요.", "OK");
                 return;
             }
 
             int frameCount = Mathf.CeilToInt(sourceClip.length * sampleRate) + 1;
 
-            // 프레임별 저장소
             var rotations = new Dictionary<Transform, Quaternion[]>();
             var positions = new Dictionary<Transform, Vector3[]>();
             foreach (var bone in allBones)
@@ -102,19 +182,8 @@ namespace YAMO.UnityTools.Editor
                 positions[bone] = new Vector3[frameCount];
             }
 
-            // 힌지축 벡터
-            Vector3 axisVec = hingeAxis switch
-            {
-                HingeAxis.X => Vector3.right,
-                HingeAxis.Y => Vector3.up,
-                HingeAxis.Z => Vector3.forward,
-                _ => Vector3.forward
-            };
+            Vector3 axisVec = HingeAxisVector(hingeAxis);
 
-            // 수정 대상 본 세트 (arm triplet에 포함된 본들)
-            var modifiedBones = new HashSet<Transform>();
-
-            // 샘플링 + 힌지 제약 적용
             AnimationMode.StartAnimationMode();
             try
             {
@@ -123,14 +192,12 @@ namespace YAMO.UnityTools.Editor
                     float t = Mathf.Min((float)i / sampleRate, sourceClip.length);
                     AnimationMode.SampleAnimationClip(go, sourceClip, t);
 
-                    // 모든 본의 원본 로컬 트랜스폼 기록
                     foreach (var bone in allBones)
                     {
                         rotations[bone][i] = bone.localRotation;
                         positions[bone][i] = bone.localPosition;
                     }
 
-                    // 각 팔에 힌지 제약 적용
                     foreach (var (upperBone, lowerBone, handBone) in armTriplets)
                     {
                         var upper = animator.GetBoneTransform(upperBone);
@@ -138,44 +205,24 @@ namespace YAMO.UnityTools.Editor
                         var hand  = animator.GetBoneTransform(handBone);
                         if (upper == null || lower == null || hand == null) continue;
 
-                        // 첫 프레임에서 수정 대상 등록
-                        if (i == 0)
-                        {
-                            modifiedBones.Add(upper);
-                            modifiedBones.Add(lower);
-                            modifiedBones.Add(hand);
-                        }
-
-                        // --- 0. 원본 월드 트랜스폼 기록 ---
-                        Vector3 origHandPos = hand.position;
+                        Vector3    origHandPos = hand.position;
                         Quaternion origHandRot = hand.rotation;
-                        Vector3 shoulderPos = upper.position;
-                        Vector3 elbowPos = lower.position;
+                        Vector3    shoulderPos = upper.position;
+                        Vector3    elbowPos    = lower.position;
 
-                        // --- 1. 최적 힌지 각도 해석적 풀이 ---
-                        // Forearm이 힌지축으로만 회전하면 Hand는 팔꿈치 중심 원 위를 이동.
-                        // 이 원 위에서 원본 Hand 위치에 가장 가까운 점의 각도를 구함.
-
-                        // θ=0, θ=90 에서 Hand 위치를 샘플링하여 원의 기하 정의
                         lower.localRotation = Quaternion.identity;
                         Vector3 h0 = hand.position - elbowPos;
 
                         lower.localRotation = Quaternion.AngleAxis(90f, axisVec);
                         Vector3 h90 = hand.position - elbowPos;
 
-                        // 월드 힌지축
                         Quaternion parentRot = lower.parent != null ? lower.parent.rotation : Quaternion.identity;
                         Vector3 worldAxis = (parentRot * axisVec).normalized;
 
-                        // 원의 중심 (elbow 기준 오프셋)
-                        Vector3 centerOffset = Vector3.Dot(h0, worldAxis) * worldAxis;
-
-                        // 원 위의 기준 방향
-                        Vector3 r0 = h0 - centerOffset;
-                        Vector3 r90 = h90 - centerOffset;
-
-                        // 타겟을 원 평면에 투영
-                        Vector3 targetOffset = origHandPos - elbowPos - centerOffset;
+                        Vector3 centerOffset  = Vector3.Dot(h0, worldAxis) * worldAxis;
+                        Vector3 r0            = h0  - centerOffset;
+                        Vector3 r90           = h90 - centerOffset;
+                        Vector3 targetOffset  = origHandPos - elbowPos - centerOffset;
                         Vector3 targetInPlane = targetOffset - Vector3.Dot(targetOffset, worldAxis) * worldAxis;
 
                         float theta = 0f;
@@ -187,34 +234,22 @@ namespace YAMO.UnityTools.Editor
                             ) * Mathf.Rad2Deg;
                         }
 
-                        // --- 2. 최적 힌지 각도 적용 ---
                         lower.localRotation = Quaternion.AngleAxis(theta, axisVec);
 
-                        // --- 3. UpperArm 최소 보정 ---
-                        // 최적 힌지라도 원본 Hand가 원 밖이면 오차 존재.
-                        // FromToRotation으로 어깨→손 방향을 일치시켜 잔여 오차 보정.
-                        Vector3 currentHandPos = hand.position;
-                        Vector3 curDir = (currentHandPos - shoulderPos);
-                        Vector3 tgtDir = (origHandPos - shoulderPos);
-
+                        Vector3 curDir = hand.position - shoulderPos;
+                        Vector3 tgtDir = origHandPos   - shoulderPos;
                         if (curDir.sqrMagnitude > 1e-8f && tgtDir.sqrMagnitude > 1e-8f)
-                        {
-                            Quaternion correction = Quaternion.FromToRotation(curDir.normalized, tgtDir.normalized);
-                            upper.rotation = correction * upper.rotation;
-                        }
+                            upper.rotation = Quaternion.FromToRotation(curDir.normalized, tgtDir.normalized) * upper.rotation;
 
-                        // --- 4. Hand 월드 회전 복원 ---
                         hand.rotation = origHandRot;
 
-                        // 수정된 로컬 회전 저장
                         rotations[upper][i] = upper.localRotation;
                         rotations[lower][i] = lower.localRotation;
-                        rotations[hand][i] = hand.localRotation;
+                        rotations[hand][i]  = hand.localRotation;
                     }
 
-                    // 진행률
                     if (i % 100 == 0)
-                        EditorUtility.DisplayProgressBar("Forearm Hinge Baker",
+                        EditorUtility.DisplayProgressBar("Forearm Hinge Baker (Edit Mode)",
                             $"샘플링 {i}/{frameCount}", (float)i / frameCount);
                 }
             }
@@ -224,9 +259,179 @@ namespace YAMO.UnityTools.Editor
                 EditorUtility.ClearProgressBar();
             }
 
-            // 새 클립 생성
-            var newClip = new AnimationClip();
-            newClip.frameRate = sampleRate;
+            var newClip = BuildClip(allBones, bonePaths, rotations, positions, frameCount, sampleRate);
+            SaveClip(newClip, sourceClip, frameCount, allBones.Count, "");
+        }
+
+        // ============================================================
+        // Play Mode 베이크 진입
+        // ============================================================
+        void BakePlayMode()
+        {
+            // 1. 임시 AnimatorController 생성 (소스 클립만 재생)
+            if (!string.IsNullOrEmpty(AssetDatabase.AssetPathToGUID(TempCtrlPath)))
+                AssetDatabase.DeleteAsset(TempCtrlPath);
+
+            var tmpCtrl = AnimatorController.CreateAnimatorControllerAtPath(TempCtrlPath);
+            var state   = tmpCtrl.layers[0].stateMachine.AddState("Record");
+            state.motion    = sourceClip;
+            state.iKOnFeet  = true;   // Foot IK (foot stabilization) 활성화
+            tmpCtrl.layers[0].stateMachine.defaultState = state;
+            AssetDatabase.SaveAssets();
+
+            // 2. 원본 컨트롤러 경로 저장 후 교체
+            string origCtrlPath = AssetDatabase.GetAssetPath(animator.runtimeAnimatorController);
+            animator.runtimeAnimatorController = tmpCtrl;
+
+            // 3. Recorder 컴포넌트 추가
+            var recorder             = animator.gameObject.AddComponent<YAMO.UnityTools.ForearmHingeRecorder>();
+            recorder.sampleRate      = sampleRate;
+            recorder.hingeAxisIndex  = (int)hingeAxis;
+
+            // 4. 복귀 후 처리에 필요한 정보를 SessionState에 저장
+            SessionState.SetBool  ("YAMO.ForearmHinge.PendingBake",     true);
+            SessionState.SetString("YAMO.ForearmHinge.NewClipPath",     DetermineNewClipPath(sourceClip));
+            SessionState.SetInt   ("YAMO.ForearmHinge.SampleRate",      sampleRate);
+            SessionState.SetInt   ("YAMO.ForearmHinge.AnimGOInstanceID",animator.gameObject.GetInstanceID());
+            SessionState.SetString("YAMO.ForearmHinge.TempCtrlPath",   TempCtrlPath);
+            SessionState.SetString("YAMO.ForearmHinge.OrigCtrlPath",   origCtrlPath);
+
+            Debug.Log("[ForearmHingeBaker] Play Mode 진입 → ForearmHingeRecorder 시작");
+
+            // 5. Play Mode 진입
+            EditorApplication.isPlaying = true;
+        }
+
+        // ============================================================
+        // Play Mode 결과 파일로부터 베이크 (브릿지에서 호출)
+        // ============================================================
+        public static void BakeFromResultFile(string resultsPath, string newClipPath, int sampleRate)
+        {
+            EditorUtility.DisplayProgressBar("Forearm Hinge Baker (Play Mode)", "결과 읽는 중...", 0f);
+            try
+            {
+                using var reader     = new BinaryReader(File.Open(resultsPath, FileMode.Open));
+                int frameCount = reader.ReadInt32();
+                int boneCount  = reader.ReadInt32();
+
+                var paths = new string[boneCount];
+                var rots  = new Quaternion[boneCount][];
+                var poss  = new Vector3[boneCount][];
+
+                for (int b = 0; b < boneCount; b++)
+                {
+                    paths[b] = reader.ReadString();
+                    rots[b]  = new Quaternion[frameCount];
+                    poss[b]  = new Vector3[frameCount];
+                    for (int f = 0; f < frameCount; f++)
+                    {
+                        rots[b][f] = new Quaternion(
+                            reader.ReadSingle(), reader.ReadSingle(),
+                            reader.ReadSingle(), reader.ReadSingle());
+                        poss[b][f] = new Vector3(
+                            reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                    }
+
+                    if (b % 50 == 0)
+                        EditorUtility.DisplayProgressBar("Forearm Hinge Baker (Play Mode)",
+                            $"결과 읽는 중... {b}/{boneCount}", (float)b / boneCount * 0.5f);
+                }
+
+                // 커브 빌드
+                var newClip = new AnimationClip { frameRate = sampleRate };
+
+                for (int b = 0; b < boneCount; b++)
+                {
+                    string path = paths[b];
+
+                    var cx = new AnimationCurve(); var cy = new AnimationCurve();
+                    var cz = new AnimationCurve(); var cw = new AnimationCurve();
+
+                    for (int f = 0; f < frameCount; f++)
+                    {
+                        float time = (float)f / sampleRate;
+                        cx.AddKey(time, rots[b][f].x); cy.AddKey(time, rots[b][f].y);
+                        cz.AddKey(time, rots[b][f].z); cw.AddKey(time, rots[b][f].w);
+                    }
+
+                    newClip.SetCurve(path, typeof(Transform), "localRotation.x", cx);
+                    newClip.SetCurve(path, typeof(Transform), "localRotation.y", cy);
+                    newClip.SetCurve(path, typeof(Transform), "localRotation.z", cz);
+                    newClip.SetCurve(path, typeof(Transform), "localRotation.w", cw);
+
+                    bool posAnimated = false;
+                    for (int f = 1; f < frameCount; f++)
+                        if ((poss[b][f] - poss[b][0]).sqrMagnitude > 1e-6f) { posAnimated = true; break; }
+
+                    if (posAnimated)
+                    {
+                        var px = new AnimationCurve(); var py = new AnimationCurve(); var pz = new AnimationCurve();
+                        for (int f = 0; f < frameCount; f++)
+                        {
+                            float time = (float)f / sampleRate;
+                            px.AddKey(time, poss[b][f].x);
+                            py.AddKey(time, poss[b][f].y);
+                            pz.AddKey(time, poss[b][f].z);
+                        }
+                        newClip.SetCurve(path, typeof(Transform), "localPosition.x", px);
+                        newClip.SetCurve(path, typeof(Transform), "localPosition.y", py);
+                        newClip.SetCurve(path, typeof(Transform), "localPosition.z", pz);
+                    }
+
+                    if (b % 50 == 0)
+                        EditorUtility.DisplayProgressBar("Forearm Hinge Baker (Play Mode)",
+                            $"커브 빌드 중... {b}/{boneCount}", 0.5f + (float)b / boneCount * 0.5f);
+                }
+
+                newClip.EnsureQuaternionContinuity();
+
+                newClipPath = AssetDatabase.GenerateUniqueAssetPath(newClipPath);
+                AssetDatabase.CreateAsset(newClip, newClipPath);
+                AssetDatabase.SaveAssets();
+
+                Debug.Log($"[ForearmHingeBaker] Play Mode 베이크 완료: {newClipPath} ({frameCount}프레임, {boneCount}본)");
+                EditorUtility.DisplayDialog("완료 (Play Mode 베이크)",
+                    $"저장: {newClipPath}\n프레임: {frameCount}\n본: {boneCount}", "OK");
+
+                Selection.activeObject = newClip;
+                EditorGUIUtility.PingObject(newClip);
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
+        }
+
+        // ============================================================
+        // 공유 유틸리티
+        // ============================================================
+        static Vector3 HingeAxisVector(HingeAxis a) => a switch
+        {
+            HingeAxis.X => Vector3.right,
+            HingeAxis.Y => Vector3.up,
+            _            => Vector3.forward,
+        };
+
+        static string DetermineNewClipPath(AnimationClip clip)
+        {
+            string srcPath = AssetDatabase.GetAssetPath(clip);
+            if (!string.IsNullOrEmpty(srcPath))
+            {
+                string dir  = System.IO.Path.GetDirectoryName(srcPath);
+                string name = System.IO.Path.GetFileNameWithoutExtension(srcPath);
+                return $"{dir}/{name}_hinged.anim";
+            }
+            return "Assets/hinged_clip.anim";
+        }
+
+        static AnimationClip BuildClip(
+            List<Transform> allBones,
+            Dictionary<Transform, string> bonePaths,
+            Dictionary<Transform, Quaternion[]> rotations,
+            Dictionary<Transform, Vector3[]> positions,
+            int frameCount, int sampleRate)
+        {
+            var clip = new AnimationClip { frameRate = sampleRate };
 
             foreach (var bone in allBones)
             {
@@ -234,43 +439,28 @@ namespace YAMO.UnityTools.Editor
                 var rots = rotations[bone];
                 var poss = positions[bone];
 
-                // 회전 커브 (Quaternion)
-                var cx = new AnimationCurve();
-                var cy = new AnimationCurve();
-                var cz = new AnimationCurve();
-                var cw = new AnimationCurve();
+                var cx = new AnimationCurve(); var cy = new AnimationCurve();
+                var cz = new AnimationCurve(); var cw = new AnimationCurve();
 
                 for (int j = 0; j < frameCount; j++)
                 {
                     float time = (float)j / sampleRate;
-                    cx.AddKey(time, rots[j].x);
-                    cy.AddKey(time, rots[j].y);
-                    cz.AddKey(time, rots[j].z);
-                    cw.AddKey(time, rots[j].w);
+                    cx.AddKey(time, rots[j].x); cy.AddKey(time, rots[j].y);
+                    cz.AddKey(time, rots[j].z); cw.AddKey(time, rots[j].w);
                 }
 
-                newClip.SetCurve(path, typeof(Transform), "localRotation.x", cx);
-                newClip.SetCurve(path, typeof(Transform), "localRotation.y", cy);
-                newClip.SetCurve(path, typeof(Transform), "localRotation.z", cz);
-                newClip.SetCurve(path, typeof(Transform), "localRotation.w", cw);
+                clip.SetCurve(path, typeof(Transform), "localRotation.x", cx);
+                clip.SetCurve(path, typeof(Transform), "localRotation.y", cy);
+                clip.SetCurve(path, typeof(Transform), "localRotation.z", cz);
+                clip.SetCurve(path, typeof(Transform), "localRotation.w", cw);
 
-                // 위치 커브 (변화가 있는 본만)
                 bool posAnimated = false;
                 for (int j = 1; j < frameCount; j++)
-                {
-                    if ((poss[j] - poss[0]).sqrMagnitude > 1e-6f)
-                    {
-                        posAnimated = true;
-                        break;
-                    }
-                }
+                    if ((poss[j] - poss[0]).sqrMagnitude > 1e-6f) { posAnimated = true; break; }
 
                 if (posAnimated)
                 {
-                    var px = new AnimationCurve();
-                    var py = new AnimationCurve();
-                    var pz = new AnimationCurve();
-
+                    var px = new AnimationCurve(); var py = new AnimationCurve(); var pz = new AnimationCurve();
                     for (int j = 0; j < frameCount; j++)
                     {
                         float time = (float)j / sampleRate;
@@ -278,85 +468,45 @@ namespace YAMO.UnityTools.Editor
                         py.AddKey(time, poss[j].y);
                         pz.AddKey(time, poss[j].z);
                     }
-
-                    newClip.SetCurve(path, typeof(Transform), "localPosition.x", px);
-                    newClip.SetCurve(path, typeof(Transform), "localPosition.y", py);
-                    newClip.SetCurve(path, typeof(Transform), "localPosition.z", pz);
+                    clip.SetCurve(path, typeof(Transform), "localPosition.x", px);
+                    clip.SetCurve(path, typeof(Transform), "localPosition.y", py);
+                    clip.SetCurve(path, typeof(Transform), "localPosition.z", pz);
                 }
             }
 
-            newClip.EnsureQuaternionContinuity();
+            clip.EnsureQuaternionContinuity();
+            return clip;
+        }
 
-            // 저장
-            string srcPath = AssetDatabase.GetAssetPath(sourceClip);
-            string newPath;
-            if (!string.IsNullOrEmpty(srcPath))
-            {
-                string dir = System.IO.Path.GetDirectoryName(srcPath);
-                string name = System.IO.Path.GetFileNameWithoutExtension(srcPath);
-                newPath = $"{dir}/{name}_hinged.anim";
-            }
-            else
-            {
-                newPath = "Assets/hinged_clip.anim";
-            }
-
+        static void SaveClip(AnimationClip clip, AnimationClip sourceClip,
+            int frameCount, int boneCount, string extraNote)
+        {
+            string newPath = DetermineNewClipPath(sourceClip);
             newPath = AssetDatabase.GenerateUniqueAssetPath(newPath);
-            AssetDatabase.CreateAsset(newClip, newPath);
+            AssetDatabase.CreateAsset(clip, newPath);
             AssetDatabase.SaveAssets();
 
-            Debug.Log($"[ForearmHingeBaker] 저장 완료: {newPath} ({frameCount}프레임, {allBones.Count}본)");
+            Debug.Log($"[ForearmHingeBaker] 저장 완료: {newPath} ({frameCount}프레임, {boneCount}본{extraNote})");
             EditorUtility.DisplayDialog("완료",
-                $"저장: {newPath}\n프레임: {frameCount}\n본: {allBones.Count}", "OK");
+                $"저장: {newPath}\n프레임: {frameCount}\n본: {boneCount}", "OK");
 
-            Selection.activeObject = newClip;
-            EditorGUIUtility.PingObject(newClip);
+            Selection.activeObject = clip;
+            EditorGUIUtility.PingObject(clip);
         }
 
-        // ============================================================
-        // Swing-Twist 분해
-        // q = swing * twist
-        // twist = 지정 축 주위 회전 (힌지 성분, forearm에 유지)
-        // swing = 나머지 회전 (제거 대상)
-        // ============================================================
-        static void SwingTwist(Quaternion q, Vector3 twistAxis,
-            out Quaternion swing, out Quaternion twist)
-        {
-            Vector3 r = new Vector3(q.x, q.y, q.z);
-            Vector3 proj = Vector3.Dot(r, twistAxis) * twistAxis;
-
-            twist = new Quaternion(proj.x, proj.y, proj.z, q.w);
-            float mag = Mathf.Sqrt(twist.x * twist.x + twist.y * twist.y
-                                  + twist.z * twist.z + twist.w * twist.w);
-
-            if (mag < 1e-6f)
-            {
-                twist = Quaternion.identity;
-                swing = q;
-            }
-            else
-            {
-                twist.x /= mag;
-                twist.y /= mag;
-                twist.z /= mag;
-                twist.w /= mag;
-                swing = q * Quaternion.Inverse(twist);
-            }
-        }
-
-        // ============================================================
-        // 본 계층 수집
-        // ============================================================
-        void CollectHierarchy(Transform t, string path,
+        // Avatar에 매핑된 Humanoid 본만 수집 (물리·악세서리 등 잡다한 본 제외)
+        static void CollectHumanoidBones(Animator anim,
             List<Transform> bones, Dictionary<Transform, string> paths)
         {
-            bones.Add(t);
-            paths[t] = path;
-
-            for (int i = 0; i < t.childCount; i++)
+            var root = anim.transform;
+            for (int i = 0; i < (int)HumanBodyBones.LastBone; i++)
             {
-                var child = t.GetChild(i);
-                CollectHierarchy(child, path + "/" + child.name, bones, paths);
+                var t = anim.GetBoneTransform((HumanBodyBones)i);
+                if (t == null || bones.Contains(t)) continue;
+
+                string path = AnimationUtility.CalculateTransformPath(t, root);
+                bones.Add(t);
+                paths[t] = path;
             }
         }
     }

@@ -27,6 +27,8 @@ namespace YAMO.UnityTools.Editor
     /// </summary>
     public class FacialAnimationBaker : EditorWindow
     {
+        private static FacialAnimationBaker _instance;
+
         private readonly List<AnimationClip> clips = new List<AnimationClip>();
         private string outputFolderPath = DefaultOutputFolder;
         private bool overwriteExisting = true;
@@ -58,9 +60,13 @@ namespace YAMO.UnityTools.Editor
         [Shortcut("YAMO/Facial Animation Baker", KeyCode.Alpha7, ShortcutModifiers.None)]
         public static void ShowWindow()
         {
+            if (_instance != null) { _instance.Close(); return; }
             var w = GetWindow<FacialAnimationBaker>("Facial Anim Baker");
             w.minSize = new Vector2(440, 460);
         }
+
+        private void OnEnable()  => _instance = this;
+        private void OnDisable() => _instance = null;
 
         // ---------------------------------------------------------------------
         // GUI
