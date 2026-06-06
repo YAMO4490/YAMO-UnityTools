@@ -188,14 +188,6 @@ namespace YAMO.UnityTools.Editor
                 biped[t.name] = t;
 
             DeleteBoneIfExists(biped, "Bip001 Footsteps");
-            DeleteBoneIfExists(biped, "Bip001 HeadNub");
-            DeleteBoneIfExists(biped, "Bip001 L Toe0Nub");
-            DeleteBoneIfExists(biped, "Bip001 R Toe0Nub");
-            for (int f = 0; f <= 4; f++)
-            {
-                DeleteBoneIfExists(biped, $"Bip001 L Finger{f}Nub");
-                DeleteBoneIfExists(biped, $"Bip001 R Finger{f}Nub");
-            }
 
             var src = CollectSourceBones(armatureRoot);
             Vector3 com = ComputeComPosition(src);
