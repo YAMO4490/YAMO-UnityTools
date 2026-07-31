@@ -2,7 +2,9 @@
     "name": "YAMO.UnityTools.Editor",
     "rootNamespace": "YAMO.UnityTools.Editor",
     "references": [
-        "YAMO.UnityTools.Runtime"
+        "YAMO.UnityTools.Runtime",
+        "Unity.Formats.Fbx.Editor",
+        "Autodesk.Fbx"
     ],
     "includePlatforms": [
         "Editor"

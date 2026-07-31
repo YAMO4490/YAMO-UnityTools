@@ -1,0 +1,24 @@
+{
+    "name": "YAMO.UnityTools.Editor.Tests",
+    "rootNamespace": "YAMO.UnityTools.Editor.Tests",
+    "references": [
+        "YAMO.UnityTools.Editor",
+        "Unity.Formats.Fbx.Editor",
+        "Autodesk.Fbx",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

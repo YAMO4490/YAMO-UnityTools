@@ -14,7 +14,6 @@
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.Animations;
-using UnityEditor.ShortcutManagement;
 using System.Collections.Generic;
 using System.IO;
 
@@ -107,7 +106,6 @@ namespace YAMO.UnityTools.Editor
         const string TempCtrlPath = "Assets/__YAMO_ForearmHingeTempCtrl__.controller";
 
         [MenuItem("Tools/YAMO/Animation/Forearm Hinge Baker")]
-        [Shortcut("YAMO/Forearm Hinge Baker", KeyCode.Alpha8, ShortcutModifiers.None)]
         static void Open()
         {
             if (_instance != null) { _instance.Close(); return; }
@@ -153,6 +151,32 @@ namespace YAMO.UnityTools.Editor
         // Edit Mode 베이크 (기존 방식)
         // ============================================================
         void BakeEditMode()
+        {
+            try
+            {
+                var result = ForearmHingeBakeService.BakeEditMode(
+                    animator,
+                    sourceClip,
+                    new ForearmHingeBakeSettings
+                    {
+                        SampleRate = sampleRate,
+                        HingeAxis = (ForearmHingeAxis)(int)hingeAxis
+                    },
+                    (message, progress) =>
+                    {
+                        EditorUtility.DisplayProgressBar("Forearm Hinge Baker (Edit Mode)", message, progress);
+                        return false;
+                    });
+
+                SaveClip(result.Clip, sourceClip, result.FrameCount, result.BoneCount, "");
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
+        }
+
+        void LegacyBakeEditMode()
         {
             var go = animator.gameObject;
 

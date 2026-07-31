@@ -452,6 +452,15 @@ namespace YAMO.UnityTools.Editor
         /// </summary>
         private static bool ProcessOptiTrack(string path, out string note)
         {
+            var result = OptiTrackMotionBindingService.Process(
+                path,
+                ExistingMotionAssetPolicy.Overwrite);
+            note = result.Note ?? string.Empty;
+            return result.Succeeded;
+        }
+
+        private static bool LegacyProcessOptiTrack(string path, out string note)
+        {
             note = "";
             var imp = AssetImporter.GetAtPath(path) as ModelImporter;
             if (imp == null) { note = $"{path}: ModelImporter 아님"; return false; }
