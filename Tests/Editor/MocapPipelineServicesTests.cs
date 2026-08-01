@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using Autodesk.Fbx;
 using NUnit.Framework;
@@ -18,6 +20,53 @@ namespace YAMO.UnityTools.Editor.Tests
             Assert.That(new BipedFbxExportSettings().FrameRate, Is.EqualTo(60f));
             Assert.That(new BipedFbxExportSettings().UseCompatibleNames, Is.False);
             Assert.That(new MocapPipelineSettings().SampleRate, Is.EqualTo(60));
+            Assert.That(new MocapPipelineSettings().HingeBakeMode, Is.EqualTo(MocapHingeBakeMode.PlayMode));
+        }
+
+        [Test]
+        public void PlayModeResultBuildsInMemoryGenericTransformClip()
+        {
+            var path = Path.GetFullPath(Path.Combine(
+                "Temp",
+                $"YamoPlayModeHinge_{Guid.NewGuid():N}.bin"));
+            AnimationClip clip = null;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                using (var writer = new BinaryWriter(File.Open(path, FileMode.Create)))
+                {
+                    writer.Write(2); // frames
+                    writer.Write(1); // bones
+                    writer.Write("Bone With Spaces");
+                    writer.Write(0f); writer.Write(0f); writer.Write(0f); writer.Write(1f);
+                    writer.Write(0f); writer.Write(0f); writer.Write(0f);
+                    writer.Write(0f); writer.Write(0f); writer.Write(0.1f); writer.Write(0.9949874f);
+                    writer.Write(1f); writer.Write(2f); writer.Write(3f);
+                }
+
+                var result = ForearmHingeBakeService.LoadPlayModeResult(path, 60, "PlayModeResult");
+                clip = result.Clip;
+
+                Assert.That(result.FrameCount, Is.EqualTo(2));
+                Assert.That(result.BoneCount, Is.EqualTo(1));
+                Assert.That(clip.name, Is.EqualTo("PlayModeResult"));
+                Assert.That(clip.frameRate, Is.EqualTo(60f));
+                var positionBinding = AnimationUtility.GetCurveBindings(clip)
+                    .Single(binding =>
+                        binding.path == "Bone With Spaces" &&
+                        binding.type == typeof(Transform) &&
+                        binding.propertyName.EndsWith("Position.x", StringComparison.OrdinalIgnoreCase));
+                var positionCurve = AnimationUtility.GetEditorCurve(clip, positionBinding);
+                Assert.That(positionCurve, Is.Not.Null);
+                Assert.That(positionCurve.length, Is.EqualTo(2));
+                Assert.That(positionCurve.keys[1].value, Is.EqualTo(1f));
+            }
+            finally
+            {
+                if (clip != null)
+                    Object.DestroyImmediate(clip);
+                DeleteIfPresent(path);
+            }
         }
 
         [Test]
@@ -115,6 +164,52 @@ namespace YAMO.UnityTools.Editor.Tests
             finally
             {
                 Object.DestroyImmediate(root);
+                AssetDatabase.DeleteAsset(assetDirectory);
+            }
+        }
+
+        [Test]
+        public void QueueFolderDiscoveryIncludesStandaloneAnimAndHonorsSubfolderOption()
+        {
+            var token = Guid.NewGuid().ToString("N");
+            var folderName = $"__YamoMocapQueueTest_{token}";
+            var assetDirectory = $"Assets/{folderName}";
+            var nestedDirectory = $"{assetDirectory}/Nested";
+            var directPath = $"{assetDirectory}/Direct.anim";
+            var nestedPath = $"{nestedDirectory}/Nested.anim";
+            var window = ScriptableObject.CreateInstance<MocapToBipedFbxPipelineWindow>();
+
+            try
+            {
+                Assert.That(AssetDatabase.CreateFolder("Assets", folderName), Is.Not.Empty);
+                Assert.That(AssetDatabase.CreateFolder(assetDirectory, "Nested"), Is.Not.Empty);
+                AssetDatabase.CreateAsset(new AnimationClip(), directPath);
+                AssetDatabase.CreateAsset(new AnimationClip(), nestedPath);
+                AssetDatabase.SaveAssets();
+
+                var windowType = typeof(MocapToBipedFbxPipelineWindow);
+                var includeField = windowType.GetField(
+                    "includeSubfolders",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                var discoverMethod = windowType.GetMethod(
+                    "AddMotionPathsFromFolders",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                Assert.That(includeField, Is.Not.Null);
+                Assert.That(discoverMethod, Is.Not.Null);
+
+                includeField.SetValue(window, false);
+                var directOnly = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+                discoverMethod.Invoke(window, new object[] { new[] { assetDirectory }, directOnly });
+                CollectionAssert.AreEquivalent(new[] { directPath }, directOnly);
+
+                includeField.SetValue(window, true);
+                var recursive = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+                discoverMethod.Invoke(window, new object[] { new[] { assetDirectory }, recursive });
+                CollectionAssert.AreEquivalent(new[] { directPath, nestedPath }, recursive);
+            }
+            finally
+            {
+                Object.DestroyImmediate(window);
                 AssetDatabase.DeleteAsset(assetDirectory);
             }
         }

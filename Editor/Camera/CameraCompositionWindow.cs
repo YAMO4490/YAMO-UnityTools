@@ -10,7 +10,7 @@
 //   - 콜백은 카메라 단위로 호출되므로, Scene View 카메라(cameraType == SceneView)
 //     를 필터링해서 거르면 Scene View 에는 절대 그려지지 않는다.
 //   - GL.LoadPixelMatrix 로 픽셀 좌표계로 그리므로 thickness/aspect 가 정확.
-//   - 5 종 구도 (Rule of Thirds / Diagonal / Golden Ratio / Golden Spiral / Cross)
+//   - 구도 (Rule of Thirds / Cross / Safe Area)
 //     를 각각 독립 토글 → 동시에 여러 개 활성 가능.
 
 using UnityEditor;
@@ -22,9 +22,8 @@ namespace YAMO.UnityTools.Editor
     public enum CompositionType
     {
         RuleOfThirds = 0,
-        GoldenRatio  = 1,
-        Cross        = 2,
-        SafeArea     = 3,
+        Cross        = 1,
+        SafeArea     = 2,
     }
 
     public class CameraCompositionWindow : EditorWindow
@@ -32,8 +31,8 @@ namespace YAMO.UnityTools.Editor
         // ----------------------------------------------------------------
         // 상태
         // ----------------------------------------------------------------
-        [SerializeField] bool[]  _visible  = { true, false, false, false };
-        [SerializeField] Color[] _perColor = { Color.white, Color.white, Color.white, Color.white };
+        [SerializeField] bool[]  _visible  = { true, false, false };
+        [SerializeField] Color[] _perColor = { Color.white, Color.white, Color.white };
         [SerializeField] Color   _lineColor       = Color.white;   // 전역 곱하기 색
         [SerializeField] float   _opacity         = 0.5f;
         [SerializeField] int     _thickness       = 4;             // pixels
@@ -278,11 +277,6 @@ namespace YAMO.UnityTools.Editor
                 GL.Color(ResolveColor((int)CompositionType.RuleOfThirds));
                 DrawRuleOfThirds(w, h, t);
             }
-            if (_visible[(int)CompositionType.GoldenRatio])
-            {
-                GL.Color(ResolveColor((int)CompositionType.GoldenRatio));
-                DrawGoldenRatio(w, h, t);
-            }
             if (_visible[(int)CompositionType.Cross])
             {
                 GL.Color(ResolveColor((int)CompositionType.Cross));
@@ -332,16 +326,6 @@ namespace YAMO.UnityTools.Editor
             DrawHLine(0, h * (2f / 3f), w, t);
             DrawVLine(w * (1f / 3f), 0, h, t);
             DrawVLine(w * (2f / 3f), 0, h, t);
-        }
-
-        static void DrawGoldenRatio(float w, float h, float t)
-        {
-            const float a = 0.381966f; // 1 / φ²
-            const float b = 0.618034f; // 1 / φ
-            DrawHLine(0, h * a, w, t);
-            DrawHLine(0, h * b, w, t);
-            DrawVLine(w * a, 0, h, t);
-            DrawVLine(w * b, 0, h, t);
         }
 
         static void DrawCross(float w, float h, float t)
@@ -411,7 +395,6 @@ namespace YAMO.UnityTools.Editor
         static readonly string[] CompositionTypeNames =
         {
             "Rule of Thirds",
-            "Golden Ratio",
             "Cross",
             "Safe Area (10%)",
         };

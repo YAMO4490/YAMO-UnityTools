@@ -8,6 +8,12 @@ using Object = UnityEngine.Object;
 
 namespace YAMO.UnityTools.Editor
 {
+    public enum MocapHingeBakeMode
+    {
+        PlayMode,
+        EditMode
+    }
+
     public enum MocapPipelineStage
     {
         Pending,
@@ -34,6 +40,7 @@ namespace YAMO.UnityTools.Editor
         public Animator TargetAnimator { get; set; }
         public string FbxOutputDirectory { get; set; }
         public int SampleRate { get; set; } = 60;
+        public MocapHingeBakeMode HingeBakeMode { get; set; } = MocapHingeBakeMode.PlayMode;
         public ForearmHingeAxis HingeAxis { get; set; } = ForearmHingeAxis.Z;
         public ExistingMotionAssetPolicy ExistingBindingPolicy { get; set; } = ExistingMotionAssetPolicy.Fail;
         public bool RecordBlendShapes { get; set; } = true;
@@ -60,7 +67,7 @@ namespace YAMO.UnityTools.Editor
     }
 
     /// <summary>
-    /// One-click synchronous pipeline: source backup -> OptiTrack binding ->
+    /// One-click synchronous pipeline: FBX backup/binding or direct .anim input ->
     /// in-memory 60 fps forearm hinge -> Biped FBX bake -> Max conversion.
     /// </summary>
     public static class MocapToBipedFbxPipeline
@@ -128,26 +135,39 @@ namespace YAMO.UnityTools.Editor
             Func<string, float, bool> progressCallback)
         {
             var sourcePath = AssetDatabase.GetAssetPath(item.SourceFbx);
-            if (!(AssetImporter.GetAtPath(sourcePath) is ModelImporter))
-                throw new InvalidOperationException($"{item.SourceFbx?.name}: ModelImporter FBX가 아닙니다.");
+            AnimationClip sourceClip;
+            string fallbackOutputName;
+            if (MocapPipelineSourceUtility.TryGetStandaloneAnimationClip(item.SourceFbx, out sourceClip))
+            {
+                result.Stage = MocapPipelineStage.Binding;
+                ThrowIfCancelled(progressCallback, $"{sourceClip.name}: Anim 직접 입력", 0.10f);
+                fallbackOutputName = Path.GetFileNameWithoutExtension(sourcePath);
+            }
+            else
+            {
+                if (!MocapPipelineSourceUtility.IsFbxModel(item.SourceFbx))
+                    throw new InvalidOperationException($"{item.SourceFbx?.name}: 지원되는 FBX 또는 Anim 에셋이 아닙니다.");
 
-            result.Stage = MocapPipelineStage.BackingUpSource;
-            ThrowIfCancelled(progressCallback, $"{item.SourceFbx.name}: 원본 백업", 0.01f);
-            result.SourceBackupPath = OptiTrackMotionBindingService.EnsureSourceBackup(
-                sourcePath,
-                out var backupCreated);
-            result.SourceBackupCreated = backupCreated;
+                result.Stage = MocapPipelineStage.BackingUpSource;
+                ThrowIfCancelled(progressCallback, $"{item.SourceFbx.name}: 원본 백업", 0.01f);
+                result.SourceBackupPath = OptiTrackMotionBindingService.EnsureSourceBackup(
+                    sourcePath,
+                    out var backupCreated);
+                result.SourceBackupCreated = backupCreated;
 
-            result.Stage = MocapPipelineStage.Binding;
-            ThrowIfCancelled(progressCallback, $"{item.SourceFbx.name}: OptiTrack 바인딩", 0.05f);
-            result.Binding = OptiTrackMotionBindingService.Process(
-                sourcePath,
-                settings.ExistingBindingPolicy);
-            if (!result.Binding.Succeeded)
-                throw new InvalidOperationException(result.Binding.Note);
+                result.Stage = MocapPipelineStage.Binding;
+                ThrowIfCancelled(progressCallback, $"{item.SourceFbx.name}: OptiTrack 바인딩", 0.05f);
+                result.Binding = OptiTrackMotionBindingService.Process(
+                    sourcePath,
+                    settings.ExistingBindingPolicy);
+                if (!result.Binding.Succeeded || result.Binding.AnimationClip == null)
+                    throw new InvalidOperationException(result.Binding.Note ?? "OptiTrack 바인딩에 실패했습니다.");
 
-            var sourceClip = result.Binding.AnimationClip;
-            var outputName = MakeUniqueOutputName(item, result.Binding.AnimationName, usedNames);
+                sourceClip = result.Binding.AnimationClip;
+                fallbackOutputName = result.Binding.AnimationName;
+            }
+
+            var outputName = MakeUniqueOutputName(item, fallbackOutputName, usedNames);
             ValidateRange(item, sourceClip);
 
             ForearmHingeBakeResult hingeResult = null;
@@ -201,7 +221,7 @@ namespace YAMO.UnityTools.Editor
 
             result.Stage = MocapPipelineStage.Completed;
             Debug.Log(
-                $"[Mocap Pipeline] Backup: {result.SourceBackupPath} | " +
+                $"[Mocap Pipeline] Source: {sourcePath} | Backup: {result.SourceBackupPath ?? "N/A"} | " +
                 $"{sourceClip.name} -> {result.FbxExport.OutputPath}");
         }
 
@@ -211,6 +231,9 @@ namespace YAMO.UnityTools.Editor
         {
             if (settings == null)
                 throw new ArgumentNullException(nameof(settings));
+            if (settings.HingeBakeMode != MocapHingeBakeMode.EditMode)
+                throw new InvalidOperationException(
+                    "동기 파이프라인은 Edit Mode Bake 전용입니다. Play Mode runner를 사용하세요.");
             if (settings.TargetAnimator == null)
                 throw new InvalidOperationException("대상 Biped Animator를 지정하세요.");
             if (settings.TargetAnimator.avatar == null ||
@@ -222,7 +245,7 @@ namespace YAMO.UnityTools.Editor
             if (string.IsNullOrWhiteSpace(settings.FbxOutputDirectory))
                 throw new InvalidOperationException("FBX 출력 폴더를 지정하세요.");
             if (items == null || !items.Any(item => item != null && item.Enabled && item.SourceFbx != null))
-                throw new InvalidOperationException("활성화된 모캡 FBX가 없습니다.");
+                throw new InvalidOperationException("활성화된 모캡 FBX 또는 Anim이 없습니다.");
             if (EditorApplication.isPlayingOrWillChangePlaymode)
                 throw new InvalidOperationException("Edit Mode에서 실행하세요.");
             if (EditorApplication.isCompiling)
@@ -266,6 +289,34 @@ namespace YAMO.UnityTools.Editor
         {
             if (callback?.Invoke(message, progress) == true)
                 throw new OperationCanceledException("Mocap 파이프라인이 취소되었습니다.");
+        }
+    }
+
+    internal static class MocapPipelineSourceUtility
+    {
+        public static bool IsSupported(Object candidate)
+        {
+            return IsFbxModel(candidate) || TryGetStandaloneAnimationClip(candidate, out _);
+        }
+
+        public static bool IsFbxModel(Object candidate)
+        {
+            if (candidate == null)
+                return false;
+            var path = AssetDatabase.GetAssetPath(candidate);
+            return !string.IsNullOrEmpty(path) &&
+                   path.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) &&
+                   AssetImporter.GetAtPath(path) is ModelImporter;
+        }
+
+        public static bool TryGetStandaloneAnimationClip(Object candidate, out AnimationClip clip)
+        {
+            clip = candidate as AnimationClip;
+            if (clip == null)
+                return false;
+            var path = AssetDatabase.GetAssetPath(clip);
+            return !string.IsNullOrEmpty(path) &&
+                   path.EndsWith(".anim", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

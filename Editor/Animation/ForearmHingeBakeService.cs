@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
 
@@ -162,6 +163,66 @@ namespace YAMO.UnityTools.Editor
             return assetPath;
         }
 
+        /// <summary>
+        /// Rebuilds an in-memory Generic Transform clip from a Play Mode recorder
+        /// result. The returned clip is not saved as an asset and must be destroyed
+        /// by the caller after the final FBX export.
+        /// </summary>
+        public static ForearmHingeBakeResult LoadPlayModeResult(
+            string resultsPath,
+            int sampleRate,
+            string clipName)
+        {
+            if (string.IsNullOrWhiteSpace(resultsPath) || !File.Exists(resultsPath))
+                throw new FileNotFoundException("Play Mode Hinge 결과 파일을 찾을 수 없습니다.", resultsPath);
+            if (sampleRate <= 0)
+                throw new ArgumentOutOfRangeException(nameof(sampleRate));
+
+            using (var reader = new BinaryReader(File.Open(resultsPath, FileMode.Open, FileAccess.Read, FileShare.Read)))
+            {
+                var frameCount = reader.ReadInt32();
+                var boneCount = reader.ReadInt32();
+                if (frameCount <= 0 || boneCount <= 0)
+                    throw new InvalidDataException(
+                        $"Play Mode Hinge 결과가 비어 있습니다: {frameCount} frames, {boneCount} bones.");
+
+                var paths = new string[boneCount];
+                var rotations = new Quaternion[boneCount][];
+                var positions = new Vector3[boneCount][];
+                for (var bone = 0; bone < boneCount; bone++)
+                {
+                    paths[bone] = reader.ReadString();
+                    rotations[bone] = new Quaternion[frameCount];
+                    positions[bone] = new Vector3[frameCount];
+                    for (var frame = 0; frame < frameCount; frame++)
+                    {
+                        rotations[bone][frame] = new Quaternion(
+                            reader.ReadSingle(), reader.ReadSingle(),
+                            reader.ReadSingle(), reader.ReadSingle());
+                        positions[bone][frame] = new Vector3(
+                            reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                    }
+                }
+
+                if (reader.BaseStream.Position != reader.BaseStream.Length)
+                    throw new InvalidDataException("Play Mode Hinge 결과 파일에 예상하지 못한 데이터가 남아 있습니다.");
+
+                var clip = BuildClipFromRecordedPaths(
+                    string.IsNullOrWhiteSpace(clipName) ? "PlayMode_hinged" : clipName,
+                    sampleRate,
+                    paths,
+                    rotations,
+                    positions,
+                    frameCount);
+                return new ForearmHingeBakeResult
+                {
+                    Clip = clip,
+                    FrameCount = frameCount,
+                    BoneCount = boneCount
+                };
+            }
+        }
+
         private static void ValidateArmMapping(Animator animator)
         {
             var required = new[]
@@ -321,6 +382,70 @@ namespace YAMO.UnityTools.Editor
                     positionZ.AddKey(time, position.z);
                 }
 
+                clip.SetCurve(path, typeof(Transform), "localPosition.x", positionX);
+                clip.SetCurve(path, typeof(Transform), "localPosition.y", positionY);
+                clip.SetCurve(path, typeof(Transform), "localPosition.z", positionZ);
+            }
+
+            clip.EnsureQuaternionContinuity();
+            return clip;
+        }
+
+        private static AnimationClip BuildClipFromRecordedPaths(
+            string name,
+            int sampleRate,
+            IReadOnlyList<string> paths,
+            IReadOnlyList<Quaternion[]> rotations,
+            IReadOnlyList<Vector3[]> positions,
+            int frameCount)
+        {
+            var clip = new AnimationClip { name = name, frameRate = sampleRate };
+            for (var bone = 0; bone < paths.Count; bone++)
+            {
+                var rotationX = new AnimationCurve();
+                var rotationY = new AnimationCurve();
+                var rotationZ = new AnimationCurve();
+                var rotationW = new AnimationCurve();
+                for (var frame = 0; frame < frameCount; frame++)
+                {
+                    var time = frame / (float)sampleRate;
+                    var rotation = rotations[bone][frame];
+                    rotationX.AddKey(time, rotation.x);
+                    rotationY.AddKey(time, rotation.y);
+                    rotationZ.AddKey(time, rotation.z);
+                    rotationW.AddKey(time, rotation.w);
+                }
+
+                var path = paths[bone];
+                clip.SetCurve(path, typeof(Transform), "localRotation.x", rotationX);
+                clip.SetCurve(path, typeof(Transform), "localRotation.y", rotationY);
+                clip.SetCurve(path, typeof(Transform), "localRotation.z", rotationZ);
+                clip.SetCurve(path, typeof(Transform), "localRotation.w", rotationW);
+
+                var positionAnimated = false;
+                for (var frame = 1; frame < frameCount; frame++)
+                {
+                    if ((positions[bone][frame] - positions[bone][0]).sqrMagnitude > 1e-6f)
+                    {
+                        positionAnimated = true;
+                        break;
+                    }
+                }
+
+                if (!positionAnimated)
+                    continue;
+
+                var positionX = new AnimationCurve();
+                var positionY = new AnimationCurve();
+                var positionZ = new AnimationCurve();
+                for (var frame = 0; frame < frameCount; frame++)
+                {
+                    var time = frame / (float)sampleRate;
+                    var position = positions[bone][frame];
+                    positionX.AddKey(time, position.x);
+                    positionY.AddKey(time, position.y);
+                    positionZ.AddKey(time, position.z);
+                }
                 clip.SetCurve(path, typeof(Transform), "localPosition.x", positionX);
                 clip.SetCurve(path, typeof(Transform), "localPosition.y", positionY);
                 clip.SetCurve(path, typeof(Transform), "localPosition.z", positionZ);

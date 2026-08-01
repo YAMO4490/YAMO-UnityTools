@@ -918,7 +918,7 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         string summary = $"변환 성공: {successCount}개  /  스킵: {skipCount}개  /  실패: {errorCount}개";
         psdResultLog.Add("");
         psdResultLog.Add("— " + summary);
-        EditorUtility.DisplayDialog("변환 완료", summary, "확인");
+        // (팝업 제거) 결과는 콘솔로만 출력 — 헤드리스/자동화 시 모달 차단 방지
         Debug.Log($"[PSD→PNG] {summary}");
         Repaint();
     }
@@ -1161,7 +1161,7 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         string summary = $"리사이즈 성공: {successCount}개  /  스킵: {skipCount}개  /  실패: {errorCount}개";
         texResizeLog.Add("");
         texResizeLog.Add("— " + summary);
-        EditorUtility.DisplayDialog("리사이즈 완료", summary, "확인");
+        // (팝업 제거) 결과는 콘솔로만 출력 — 헤드리스/자동화 시 모달 차단 방지
         Debug.Log($"[텍스처 리사이즈] {summary}");
         Repaint();
     }
