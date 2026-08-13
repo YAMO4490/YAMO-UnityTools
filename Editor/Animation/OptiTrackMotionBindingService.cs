@@ -11,7 +11,14 @@ namespace YAMO.UnityTools.Editor
     public enum ExistingMotionAssetPolicy
     {
         Fail,
-        Overwrite
+        Overwrite,
+
+        /// <summary>
+        /// Keeps every source: when the target name is already taken by a foreign
+        /// asset, a numeric suffix is appended instead of deleting anything.
+        /// Only leftovers that belong to the source itself are replaced.
+        /// </summary>
+        Disambiguate
     }
 
     public sealed class OptiTrackMotionBindingResult
@@ -99,29 +106,59 @@ namespace YAMO.UnityTools.Editor
             importer.SaveAndReimport();
         }
 
+        /// <param name="desiredAnimationName">
+        /// Overrides the name derived from the FBX take. Pass the value produced by
+        /// <see cref="PlanAnimationNames"/> when processing a batch, so that several
+        /// sources sharing one take name (e.g. per-actor OptiTrack exports) do not
+        /// fight over the same target file.
+        /// </param>
         public static OptiTrackMotionBindingResult Process(
             string sourcePath,
-            ExistingMotionAssetPolicy existingAssetPolicy = ExistingMotionAssetPolicy.Fail)
+            ExistingMotionAssetPolicy existingAssetPolicy = ExistingMotionAssetPolicy.Fail,
+            string desiredAnimationName = null)
         {
             var result = new OptiTrackMotionBindingResult { SourcePath = sourcePath };
             var importer = AssetImporter.GetAtPath(sourcePath) as ModelImporter;
             if (importer == null)
                 return Fail(result, $"{sourcePath}: ModelImporter 아님");
 
-            var animationName = SanitizeFileName(ResolveAnimationName(importer));
+            // A "_T" file is this tool's own T-pose asset; binding it would rename the
+            // avatar the real motion points at. Refuse instead of destroying it.
+            if (IsTPoseAsset(sourcePath))
+                return Fail(result, $"{sourcePath}: _T(T 포즈) 파일은 바인딩 대상이 아닙니다. 목록에서 제외하세요.");
+
+            var animationName = SanitizeFileName(
+                string.IsNullOrWhiteSpace(desiredAnimationName)
+                    ? ResolveAnimationName(importer)
+                    : desiredAnimationName.Trim());
             if (string.IsNullOrEmpty(animationName))
                 return Fail(result, $"{sourcePath}: 애니메이션 이름을 찾을 수 없음");
 
-            result.AnimationName = animationName;
             var directory = Path.GetDirectoryName(sourcePath)?.Replace('\\', '/');
             if (string.IsNullOrEmpty(directory))
                 return Fail(result, $"{sourcePath}: 상위 폴더를 찾을 수 없음");
 
-            var motionPath = $"{directory}/{animationName}.fbx";
+            if (!ResolveFreeTargetName(
+                    sourcePath,
+                    directory,
+                    animationName,
+                    existingAssetPolicy,
+                    out animationName,
+                    out var motionPath,
+                    out var tPosePath,
+                    out var renameNote,
+                    out var renameError))
+                return Fail(result, renameError);
+
+            result.AnimationName = animationName;
+            result.TPosePath = tPosePath;
+            AppendNote(result, renameNote);
+
             if (!PathsEqual(sourcePath, motionPath))
             {
-                if (!PrepareDestination(motionPath, existingAssetPolicy, out var error))
+                if (!PrepareDestination(motionPath, existingAssetPolicy, out var error, out var overwriteNote))
                     return Fail(result, error);
+                AppendNote(result, overwriteNote);
 
                 error = AssetDatabase.RenameAsset(sourcePath, animationName);
                 if (!string.IsNullOrEmpty(error))
@@ -139,10 +176,9 @@ namespace YAMO.UnityTools.Editor
             if (clips == null || clips.Length == 0)
                 clips = importer.defaultClipAnimations;
 
-            var tPosePath = $"{directory}/{animationName}_T.fbx";
-            result.TPosePath = tPosePath;
-            if (!PrepareDestination(tPosePath, existingAssetPolicy, out var destinationError))
+            if (!PrepareDestination(tPosePath, existingAssetPolicy, out var destinationError, out var tPoseOverwriteNote))
                 return Fail(result, destinationError);
+            AppendNote(result, tPoseOverwriteNote);
             if (!AssetDatabase.CopyAsset(sourcePath, tPosePath))
                 return Fail(result, $"{sourcePath}: _T 복사 실패");
 
@@ -182,7 +218,7 @@ namespace YAMO.UnityTools.Editor
             }
             else
             {
-                result.Note = $"{sourcePath}: T 아바타 자동 동기화 실패 - Rig 탭에서 Update를 눌러주세요.";
+                AppendNote(result, $"{sourcePath}: T 아바타 자동 동기화 실패 - Rig 탭에서 Update를 눌러주세요.");
             }
 
             result.AnimationClip = AssetDatabase.LoadAllAssetsAtPath(sourcePath)
@@ -195,12 +231,153 @@ namespace YAMO.UnityTools.Editor
             return result;
         }
 
+        /// <summary>
+        /// Decides the target file name for every source up front, so that a whole
+        /// batch can be bound without any source clobbering another's output.
+        /// <para>
+        /// The binding pipeline names its output after the FBX take, not after the
+        /// source file. Per-actor OptiTrack exports of one take (001.fbx, 002.fbx…)
+        /// therefore all resolve to the same take name; sources that collide this way
+        /// get their original file name (= the actor number) appended so each one
+        /// survives as its own motion.
+        /// </para>
+        /// </summary>
+        /// <returns>Source asset path → animation name. Sources whose take name cannot
+        /// be resolved are omitted; <see cref="Process"/> reports those individually.</returns>
+        public static Dictionary<string, string> PlanAnimationNames(
+            IEnumerable<string> sourcePaths,
+            out List<string> notes)
+        {
+            notes = new List<string>();
+            var plan = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (sourcePaths == null)
+                return plan;
+
+            // Group by (folder, take name) — a collision only matters inside one folder.
+            var groups = new Dictionary<string, List<KeyValuePair<string, string>>>(StringComparer.OrdinalIgnoreCase);
+            var order = new List<string>();
+            foreach (var sourcePath in sourcePaths)
+            {
+                if (string.IsNullOrEmpty(sourcePath) || plan.ContainsKey(sourcePath))
+                    continue;
+                if (IsTPoseAsset(sourcePath))
+                    continue;
+                if (!(AssetImporter.GetAtPath(sourcePath) is ModelImporter importer))
+                    continue;
+
+                var takeName = SanitizeFileName(ResolveAnimationName(importer));
+                if (string.IsNullOrEmpty(takeName))
+                    continue;
+
+                plan[sourcePath] = takeName;
+                var key = DirectoryOf(sourcePath) + "|" + takeName;
+                if (!groups.TryGetValue(key, out var group))
+                {
+                    groups[key] = group = new List<KeyValuePair<string, string>>();
+                    order.Add(key);
+                }
+                group.Add(new KeyValuePair<string, string>(sourcePath, takeName));
+            }
+
+            // Reserve the unambiguous names first so a disambiguated name never
+            // steals a name another source would have kept as-is.
+            var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var key in order)
+            {
+                if (groups[key].Count > 1)
+                    continue;
+                var entry = groups[key][0];
+                plan[entry.Key] = Reserve(DirectoryOf(entry.Key), entry.Value, reserved);
+            }
+
+            foreach (var key in order)
+            {
+                var group = groups[key];
+                if (group.Count <= 1)
+                    continue;
+
+                foreach (var entry in group)
+                {
+                    var directory = DirectoryOf(entry.Key);
+                    var takeName = entry.Value;
+                    var candidate = Reserve(
+                        directory,
+                        AppendSourceName(takeName, Path.GetFileNameWithoutExtension(entry.Key)),
+                        reserved);
+                    plan[entry.Key] = candidate;
+
+                    if (!string.Equals(candidate, takeName, StringComparison.Ordinal))
+                        notes.Add($"{entry.Key}: 클립 이름 '{takeName}'이(가) {group.Count}개 파일에서 겹쳐 '{candidate}'(으)로 저장합니다.");
+                }
+            }
+
+            return plan;
+        }
+
+        /// <summary>
+        /// Picks a name whose motion file and "_T" file are both free, or already
+        /// belong to this source (a re-run of a previously bound file). Only applies
+        /// to <see cref="ExistingMotionAssetPolicy.Disambiguate"/>; the other policies
+        /// keep their existing fail/overwrite behaviour in <see cref="PrepareDestination"/>.
+        /// </summary>
+        private static bool ResolveFreeTargetName(
+            string sourcePath,
+            string directory,
+            string baseName,
+            ExistingMotionAssetPolicy policy,
+            out string resolvedName,
+            out string motionPath,
+            out string tPosePath,
+            out string note,
+            out string error)
+        {
+            resolvedName = baseName;
+            motionPath = $"{directory}/{baseName}.fbx";
+            tPosePath = $"{directory}/{baseName}_T.fbx";
+            note = null;
+            error = null;
+
+            if (policy != ExistingMotionAssetPolicy.Disambiguate)
+                return true;
+
+            var candidate = baseName;
+            var suffix = 2;
+            while (true)
+            {
+                motionPath = $"{directory}/{candidate}.fbx";
+                tPosePath = $"{directory}/{candidate}_T.fbx";
+
+                // Owning the motion name means this file was already bound under it,
+                // so the "_T" beside it is our own leftover and may be replaced.
+                var ownsName = PathsEqual(sourcePath, motionPath);
+                if (ownsName ||
+                    (AssetDatabase.LoadMainAssetAtPath(motionPath) == null &&
+                     AssetDatabase.LoadMainAssetAtPath(tPosePath) == null))
+                    break;
+
+                if (suffix > 999)
+                {
+                    error = $"{sourcePath}: '{baseName}' 이름으로 사용할 수 있는 빈 자리를 찾지 못했습니다.";
+                    return false;
+                }
+
+                candidate = $"{baseName}_{suffix++}";
+            }
+
+            resolvedName = candidate;
+            if (!string.Equals(candidate, baseName, StringComparison.Ordinal))
+                note = $"{sourcePath}: '{baseName}' 이름이 이미 사용 중이라 '{candidate}'(으)로 저장했습니다.";
+            return true;
+        }
+
         private static bool PrepareDestination(
             string destinationPath,
             ExistingMotionAssetPolicy policy,
-            out string error)
+            out string error,
+            out string note)
         {
             error = null;
+            note = null;
             if (AssetDatabase.LoadMainAssetAtPath(destinationPath) == null)
                 return true;
 
@@ -216,7 +393,57 @@ namespace YAMO.UnityTools.Editor
                 return false;
             }
 
+            // Disambiguate only ever reaches this point for the source's own leftovers.
+            if (policy == ExistingMotionAssetPolicy.Overwrite)
+                note = $"{destinationPath}: 기존 에셋을 삭제하고 덮어썼습니다.";
             return true;
+        }
+
+        private static string Reserve(string directory, string candidate, HashSet<string> reserved)
+        {
+            var baseName = candidate;
+            var suffix = 2;
+            while (!reserved.Add(directory + "|" + candidate))
+                candidate = $"{baseName}_{suffix++}";
+            return candidate;
+        }
+
+        private static string AppendSourceName(string takeName, string sourceName)
+        {
+            sourceName = SanitizeFileName(sourceName);
+            if (string.IsNullOrEmpty(sourceName))
+                return takeName;
+            if (string.Equals(takeName, sourceName, StringComparison.OrdinalIgnoreCase))
+                return takeName;
+            // Already disambiguated by an earlier run ("드립_003" + "드립_003_001") —
+            // keep the current name so re-running the tool stays idempotent.
+            if (sourceName.StartsWith(takeName + "_", StringComparison.OrdinalIgnoreCase))
+                return sourceName;
+            if (takeName.EndsWith("_" + sourceName, StringComparison.OrdinalIgnoreCase))
+                return takeName;
+            return takeName + "_" + sourceName;
+        }
+
+        /// <summary>True for the "_T" T-pose copies this pipeline generates.</summary>
+        public static bool IsTPoseAsset(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath))
+                return false;
+            var fileName = Path.GetFileNameWithoutExtension(assetPath);
+            return !string.IsNullOrEmpty(fileName)
+                && fileName.EndsWith("_T", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string DirectoryOf(string assetPath)
+        {
+            return Path.GetDirectoryName(assetPath)?.Replace('\\', '/') ?? string.Empty;
+        }
+
+        private static void AppendNote(OptiTrackMotionBindingResult result, string note)
+        {
+            if (string.IsNullOrEmpty(note))
+                return;
+            result.Note = string.IsNullOrEmpty(result.Note) ? note : result.Note + "\n" + note;
         }
 
         private static bool BuildTPoseAvatar(string tPosePath, out Avatar avatar, out string note)
@@ -398,7 +625,7 @@ namespace YAMO.UnityTools.Editor
             string note)
         {
             result.Succeeded = false;
-            result.Note = note;
+            AppendNote(result, note);
             return result;
         }
     }

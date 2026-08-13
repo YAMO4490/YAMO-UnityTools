@@ -84,6 +84,15 @@ namespace YAMO.UnityTools.Editor
             var results = new List<MocapPipelineResult>(enabledItems.Count);
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            // Binding names its output after the FBX take, so per-actor exports of one
+            // take collide. Plan the batch up front: colliding sources keep their
+            // original file name as a suffix instead of fighting over one target file.
+            var bindingNames = OptiTrackMotionBindingService.PlanAnimationNames(
+                enabledItems.Select(item => AssetDatabase.GetAssetPath(item.SourceFbx)),
+                out var bindingNameNotes);
+            foreach (var note in bindingNameNotes)
+                Debug.Log($"[MocapPipeline] {note}");
+
             for (var index = 0; index < enabledItems.Count; index++)
             {
                 var item = enabledItems[index];
@@ -101,6 +110,7 @@ namespace YAMO.UnityTools.Editor
                         item,
                         result,
                         usedNames,
+                        bindingNames,
                         (message, itemProgress) =>
                         {
                             var totalProgress = (index + Mathf.Clamp01(itemProgress)) / enabledItems.Count;
@@ -132,6 +142,7 @@ namespace YAMO.UnityTools.Editor
             MocapPipelineItem item,
             MocapPipelineResult result,
             ISet<string> usedNames,
+            IReadOnlyDictionary<string, string> bindingNames,
             Func<string, float, bool> progressCallback)
         {
             var sourcePath = AssetDatabase.GetAssetPath(item.SourceFbx);
@@ -157,9 +168,11 @@ namespace YAMO.UnityTools.Editor
 
                 result.Stage = MocapPipelineStage.Binding;
                 ThrowIfCancelled(progressCallback, $"{item.SourceFbx.name}: OptiTrack 바인딩", 0.05f);
+                bindingNames.TryGetValue(sourcePath, out var plannedBindingName);
                 result.Binding = OptiTrackMotionBindingService.Process(
                     sourcePath,
-                    settings.ExistingBindingPolicy);
+                    settings.ExistingBindingPolicy,
+                    plannedBindingName);
                 if (!result.Binding.Succeeded || result.Binding.AnimationClip == null)
                     throw new InvalidOperationException(result.Binding.Note ?? "OptiTrack 바인딩에 실패했습니다.");
 

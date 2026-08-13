@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEditor;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace YAMO.UnityTools.Editor
@@ -22,6 +23,25 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     private Dictionary<Texture, Texture> textureCopies = new Dictionary<Texture, Texture>();
     private HashSet<Material> collectedMaterials = new HashSet<Material>();
     private HashSet<Texture> collectedTextures = new HashSet<Texture>();
+
+    private const string MaxMainTextureMapFileName = "YAMO_MaxMainTextureMap.tsv";
+
+    // 머티리얼명 → 메인 텍스처 GUID.
+    // ⚠ 파일명이 아니라 GUID로 들고 있는 이유: PSD→PNG 변환(섹션 2)과 포맷 변경 리사이즈(섹션 3)가
+    //    meta를 이식해 GUID는 유지한 채 확장자만 바꾼다. 파일명을 캐싱하면 맵이 사라진 .psd를 가리켜
+    //    3ds Max 자동 매칭이 실패한다. 실제 파일명은 기록 직전에 GUID로 다시 해석한다.
+    private SortedDictionary<string, string> maxMainTextureGuids =
+        new SortedDictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
+
+    private static readonly string[] MaxMainTexturePropertyPriority =
+    {
+        "_BaseMap",
+        "_BaseColorMap",
+        "_MainTex",
+        "_BaseColorTex",
+        "_AlbedoMap",
+        "_DiffuseMap"
+    };
 
     // =====================================================
     // 섹션 2: PSD → PNG 변환
@@ -603,6 +623,7 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
 
         materialCopies.Clear();
         textureCopies.Clear();
+        maxMainTextureGuids.Clear();
 
 		EnsureFolderExists(materialOutputPath);
 		EnsureFolderExists(textureOutputPath);
@@ -622,9 +643,11 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
                 {
                     Material newMat = new Material(orig);
                     string matPath = AssetDatabase.GenerateUniqueAssetPath(materialOutputPath + "/" + orig.name + "_Copy.mat");
+                    string copiedMaterialName = Path.GetFileNameWithoutExtension(matPath);
+                    newMat.name = copiedMaterialName;
                     AssetDatabase.CreateAsset(newMat, matPath);
                     materialCopies[orig] = newMat;
-                    CopyTextures(orig, newMat);
+                    CopyTextures(orig, newMat, copiedMaterialName, maxMainTextureGuids);
                     EditorUtility.SetDirty(newMat);
                 }
                 newMats[i] = materialCopies[orig];
@@ -634,41 +657,155 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
             renderer.sharedMaterials = newMats;
         }
 
+        WriteMaxMainTextureMap();
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
     }
 
-    void CopyTextures(Material original, Material copy)
+    void CopyTextures(
+        Material original,
+        Material copy,
+        string copiedMaterialName,
+        IDictionary<string, string> maxMainTextureGuidMap)
     {
         Shader shader = original.shader;
         int count = ShaderUtil.GetPropertyCount(shader);
+        Texture mainTextureForMax = GetMainTextureForMax(original);
 
         string[] maskProps = { "_MaskMap", "_OcclusionMap", "_DetailMask", "_RoughnessMap", "_MetallicGlossMap" };
 
         for (int i = 0; i < count; i++)
         {
             string prop = ShaderUtil.GetPropertyName(shader, i);
+
+            // ⚠ 속성 타입 검사를 GetTexture보다 먼저 할 것.
+            //    텍스처가 아닌 속성(Float/Color/Vector)에 GetTexture를 호출하면 Unity가
+            //    "Material X ... doesn't have a texture property Y" 에러를 찍는다. 반환값은 null이라
+            //    기능상 문제는 없지만, 아바타 1개당 수십 건씩 쌓여 콘솔에서 진짜 에러가 묻힌다.
+            bool isTexEnv = ShaderUtil.GetPropertyType(shader, i) == ShaderUtil.ShaderPropertyType.TexEnv;
+            bool isMask = System.Array.IndexOf(maskProps, prop) >= 0;
+            if (!isTexEnv && !isMask) continue;
+
             Texture tex = original.GetTexture(prop);
             if (tex == null) continue;
 
-            bool isTexEnv = ShaderUtil.GetPropertyType(shader, i) == ShaderUtil.ShaderPropertyType.TexEnv;
-            bool isMask = System.Array.IndexOf(maskProps, prop) >= 0;
-
-            if (isTexEnv || isMask)
+            if (!textureCopies.ContainsKey(tex))
             {
-                if (!textureCopies.ContainsKey(tex))
-                {
-                    string path = AssetDatabase.GetAssetPath(tex);
-                    string newPath = AssetDatabase.GenerateUniqueAssetPath(textureOutputPath + "/" + tex.name + "_Copy" + Path.GetExtension(path));
-                    AssetDatabase.CopyAsset(path, newPath);
-                    Texture newTex = AssetDatabase.LoadAssetAtPath<Texture>(newPath);
-                    textureCopies[tex] = newTex;
-                }
-
-                copy.SetTexture(prop, textureCopies[tex]);
-                EditorUtility.SetDirty(copy);
+                string path = AssetDatabase.GetAssetPath(tex);
+                string newPath = AssetDatabase.GenerateUniqueAssetPath(textureOutputPath + "/" + tex.name + "_Copy" + Path.GetExtension(path));
+                AssetDatabase.CopyAsset(path, newPath);
+                Texture newTex = AssetDatabase.LoadAssetAtPath<Texture>(newPath);
+                textureCopies[tex] = newTex;
             }
+
+            copy.SetTexture(prop, textureCopies[tex]);
+            EditorUtility.SetDirty(copy);
         }
+
+        if (mainTextureForMax != null && textureCopies.TryGetValue(mainTextureForMax, out Texture copiedMainTexture))
+        {
+            // 파일명이 아니라 GUID를 저장 — PSD→PNG 변환·포맷 변경 리사이즈 후에도 유효하다.
+            string copiedTexturePath = AssetDatabase.GetAssetPath(copiedMainTexture);
+            string copiedTextureGuid = AssetDatabase.AssetPathToGUID(copiedTexturePath);
+            if (!string.IsNullOrEmpty(copiedTextureGuid))
+                maxMainTextureGuidMap[copiedMaterialName] = copiedTextureGuid;
+        }
+    }
+
+    Texture GetMainTextureForMax(Material material)
+    {
+        foreach (string propertyName in MaxMainTexturePropertyPriority)
+        {
+            if (!material.HasProperty(propertyName)) continue;
+
+            Texture texture = material.GetTexture(propertyName);
+            if (texture != null) return texture;
+        }
+
+        return material.mainTexture;
+    }
+
+    // 맵 파일이 이미 있으면 현재 파일명 기준으로 다시 쓴다.
+    // PSD→PNG 변환·포맷 변경 리사이즈 직후에 호출되어, 확장자가 바뀐 텍스처를 맵에 반영한다.
+    void RefreshMaxMainTextureMapIfExists()
+    {
+        if (string.IsNullOrEmpty(textureOutputPath)) return;
+
+        string assetPath = textureOutputPath.TrimEnd('/', '\\') + "/" + MaxMainTextureMapFileName;
+        string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+        string fullPath = Path.Combine(projectRoot, assetPath.Replace('/', Path.DirectorySeparatorChar));
+
+        // 섹션 1을 돌린 적이 없으면(맵 파일도 없고 캐시도 비었으면) 아무것도 만들지 않는다.
+        if (!File.Exists(fullPath) && maxMainTextureGuids.Count == 0) return;
+
+        // 창을 다시 연 뒤 섹션 2/3만 돌린 경우 등 캐시가 비었으면 복사본 머티리얼에서 복원.
+        if (maxMainTextureGuids.Count == 0) RebuildMaxMainTextureGuidsFromCopiedMaterials();
+
+        WriteMaxMainTextureMap();
+    }
+
+    // materialOutputPath의 복사본 머티리얼을 훑어 머티리얼명 → 메인 텍스처 GUID 맵을 재구성.
+    void RebuildMaxMainTextureGuidsFromCopiedMaterials()
+    {
+        maxMainTextureGuids.Clear();
+        if (string.IsNullOrEmpty(materialOutputPath)) return;
+        if (!AssetDatabase.IsValidFolder(materialOutputPath.TrimEnd('/', '\\'))) return;
+
+        foreach (string guid in AssetDatabase.FindAssets("t:Material", new[] { materialOutputPath.TrimEnd('/', '\\') }))
+        {
+            var material = AssetDatabase.LoadAssetAtPath<Material>(AssetDatabase.GUIDToAssetPath(guid));
+            if (material == null) continue;
+
+            Texture mainTexture = GetMainTextureForMax(material);
+            if (mainTexture == null) continue;
+
+            string texGuid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(mainTexture));
+            if (!string.IsNullOrEmpty(texGuid)) maxMainTextureGuids[material.name] = texGuid;
+        }
+    }
+
+    void WriteMaxMainTextureMap()
+    {
+        string assetPath = textureOutputPath.TrimEnd('/', '\\') + "/" + MaxMainTextureMapFileName;
+        string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+        string fullPath = Path.Combine(projectRoot, assetPath.Replace('/', Path.DirectorySeparatorChar));
+
+        var output = new StringBuilder();
+        output.AppendLine("# YAMO_MAX_MAIN_TEXTURE_MAP\t1");
+        output.AppendLine("material\ttexture");
+
+        int written = 0;
+        var unresolved = new List<string>();
+
+        foreach (var pair in maxMainTextureGuids)
+        {
+            // ⭐ GUID → 현재 에셋 경로. PSD가 PNG로 교체됐어도 여기서 최종 파일명(.png)이 나온다.
+            string currentPath = AssetDatabase.GUIDToAssetPath(pair.Value);
+            if (string.IsNullOrEmpty(currentPath))
+            {
+                unresolved.Add(pair.Key);
+                continue;
+            }
+
+            string materialName = SanitizeTsvValue(pair.Key);
+            string textureFileName = SanitizeTsvValue(Path.GetFileName(currentPath));
+            output.Append(materialName).Append('\t').AppendLine(textureFileName);
+            written++;
+        }
+
+        File.WriteAllText(fullPath, output.ToString(), new UTF8Encoding(false));
+        AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+        Debug.Log($"[MatTex] Max main-texture map written: {assetPath} ({written} entries)");
+
+        if (unresolved.Count > 0)
+            Debug.LogWarning($"[MatTex] 메인 텍스처를 찾지 못해 맵에서 제외됨 ({unresolved.Count}개): {string.Join(", ", unresolved)}");
+    }
+
+    string SanitizeTsvValue(string value)
+    {
+        return string.IsNullOrEmpty(value)
+            ? string.Empty
+            : value.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
     }
 
 	bool HasDuplicates()
@@ -915,6 +1052,9 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         psdFoundEntries.Clear();
         psdScanned = false;
 
+        // .psd → .png로 파일명이 바뀌었으므로 Max용 텍스처 맵을 현재 파일명으로 다시 기록
+        RefreshMaxMainTextureMapIfExists();
+
         string summary = $"변환 성공: {successCount}개  /  스킵: {skipCount}개  /  실패: {errorCount}개";
         psdResultLog.Add("");
         psdResultLog.Add("— " + summary);
@@ -1157,6 +1297,9 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
 
         texResizeEntries.Clear();
         texResizeScanned = false;
+
+        // 포맷 변경 리사이즈(.tga/.jpg → .png 등)로 파일명이 바뀔 수 있으므로 맵을 다시 기록
+        RefreshMaxMainTextureMapIfExists();
 
         string summary = $"리사이즈 성공: {successCount}개  /  스킵: {skipCount}개  /  실패: {errorCount}개";
         texResizeLog.Add("");

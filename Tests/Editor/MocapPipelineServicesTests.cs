@@ -169,6 +169,97 @@ namespace YAMO.UnityTools.Editor.Tests
         }
 
         [Test]
+        public void PlanAnimationNamesKeepsEveryActorWhenTakeNamesCollide()
+        {
+            // Per-actor OptiTrack exports of one take share the take name, so naming
+            // the output after the take alone made the second file overwrite the first.
+            var token = Guid.NewGuid().ToString("N");
+            var folderName = $"__YamoOptiNamePlanTest_{token}";
+            var assetDirectory = $"Assets/{folderName}";
+            const string takeName = "Drip_003";
+            var root = new GameObject("NamePlanRoot");
+            var bone = new GameObject("NamePlanBone");
+            bone.transform.SetParent(root.transform, false);
+
+            try
+            {
+                Assert.That(AssetDatabase.CreateFolder("Assets", folderName), Is.Not.Empty);
+                var actorOne = ExportTakeFbx(assetDirectory, "001", takeName, root);
+                var actorTwo = ExportTakeFbx(assetDirectory, "002", takeName, root);
+                var soloTake = ExportTakeFbx(assetDirectory, "003", "Solo_007", root);
+
+                var plan = OptiTrackMotionBindingService.PlanAnimationNames(
+                    new[] { actorOne, actorTwo, soloTake },
+                    out var notes);
+
+                Assert.That(plan[actorOne], Is.EqualTo($"{takeName}_001"));
+                Assert.That(plan[actorTwo], Is.EqualTo($"{takeName}_002"));
+                Assert.That(plan[soloTake], Is.EqualTo("Solo_007"), "충돌하지 않는 파일은 테이크 이름을 그대로 유지해야 합니다.");
+                Assert.That(notes.Count, Is.EqualTo(2));
+
+                // Re-running the tool on the already-disambiguated files must be a no-op.
+                Assert.That(AssetDatabase.RenameAsset(actorOne, plan[actorOne]), Is.Empty);
+                Assert.That(AssetDatabase.RenameAsset(actorTwo, plan[actorTwo]), Is.Empty);
+                var boundOne = $"{assetDirectory}/{takeName}_001.fbx";
+                var boundTwo = $"{assetDirectory}/{takeName}_002.fbx";
+
+                var replan = OptiTrackMotionBindingService.PlanAnimationNames(
+                    new[] { boundOne, boundTwo },
+                    out _);
+
+                Assert.That(replan[boundOne], Is.EqualTo($"{takeName}_001"));
+                Assert.That(replan[boundTwo], Is.EqualTo($"{takeName}_002"));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                AssetDatabase.DeleteAsset(assetDirectory);
+            }
+        }
+
+        [Test]
+        public void PlanAnimationNamesSkipsGeneratedTPoseAssets()
+        {
+            Assert.That(OptiTrackMotionBindingService.IsTPoseAsset("Assets/Motion/Drip_003_T.fbx"), Is.True);
+            Assert.That(OptiTrackMotionBindingService.IsTPoseAsset("Assets/Motion/Drip_003.fbx"), Is.False);
+        }
+
+        // Exports a placeholder FBX and stamps the take name onto its clip list, which
+        // is what the binding pipeline reads to decide the output file name.
+        private static string ExportTakeFbx(
+            string assetDirectory,
+            string fileName,
+            string takeName,
+            GameObject root)
+        {
+            var assetPath = $"{assetDirectory}/{fileName}.fbx";
+            var options = MocapFbxExporterCompat.BuildOptions(
+                useMayaCompatibleNames: true,
+                exportGeometry: true,
+                animateSkinnedMesh: false,
+                exportUnrendered: true,
+                keepInstances: true);
+            Assert.That(MocapFbxExporterCompat.ExportObject(assetPath, root, options), Is.Not.Null.And.Not.Empty);
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
+
+            var importer = (ModelImporter)AssetImporter.GetAtPath(assetPath);
+            importer.animationType = ModelImporterAnimationType.Generic;
+            importer.importAnimation = true;
+            importer.clipAnimations = new[]
+            {
+                new ModelImporterClipAnimation
+                {
+                    name = takeName + "_FBX",
+                    takeName = takeName,
+                    firstFrame = 0f,
+                    lastFrame = 1f
+                }
+            };
+            importer.SaveAndReimport();
+            return assetPath;
+        }
+
+        [Test]
         public void QueueFolderDiscoveryIncludesStandaloneAnimAndHonorsSubfolderOption()
         {
             var token = Guid.NewGuid().ToString("N");

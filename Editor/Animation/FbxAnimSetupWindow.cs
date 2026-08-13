@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
@@ -20,20 +19,6 @@ namespace YAMO.UnityTools.Editor
         private readonly List<Object> _optiTargets = new List<Object>();
         private VisualElement _optiListContainer;
         private Label _optiStatusLabel;
-
-        // Reflection cache for UnityEditor.AvatarSetupTool.SetupHumanSkeleton (internal).
-        private static MethodInfo _setupHumanSkeleton;
-        private static bool _reflectionResolved;
-
-        // Reflection cache for the Rig tab "Update" logic
-        // (UnityEditor.ModelImporterRigEditor.CopyHumanDescriptionToDestination).
-        private static MethodInfo _copyHumanDescription;
-        private static bool _copyReflectionResolved;
-
-        // OptiTrack spine template (prefix varies per actor, suffixes are fixed).
-        private const string SpineBone      = "_Spine1";
-        private const string ChestBone      = "_Spine3";
-        private const string UpperChestBone = "_Spine4";
 
         [MenuItem("Tools/YAMO/Animation/FBX 애니메이션 설정 _9")]
         public static void ToggleWindow()
@@ -343,10 +328,11 @@ namespace YAMO.UnityTools.Editor
             addBtn.style.flexGrow = 1;
             addBtn.tooltip = "Project 창에서 선택된 FBX 에셋을 목록에 추가합니다.";
             btnRow.Add(addBtn);
-            var addFolderBtn = new Button(() => AddFromFolders(_optiTargets, OptiRefreshList, OptiSetStatus))
+            var addFolderBtn = new Button(() =>
+                AddFromFolders(_optiTargets, OptiRefreshList, OptiSetStatus, skipTPoseAssets: true))
             { text = "폴더 추가" };
             addFolderBtn.style.marginLeft = 4;
-            addFolderBtn.tooltip = "선택(또는 지정)한 폴더 하위의 모든 FBX를 목록에 추가합니다.";
+            addFolderBtn.tooltip = "선택(또는 지정)한 폴더 하위의 모든 FBX를 목록에 추가합니다 (_T 파일 제외).";
             btnRow.Add(addFolderBtn);
             var clearBtn = new Button(OptiClearList) { text = "목록 비우기" };
             clearBtn.style.marginLeft = 4;
@@ -413,18 +399,37 @@ namespace YAMO.UnityTools.Editor
             // inside AssetDatabase.StartAssetEditing (which defers imports).
             int ok = 0, fail = 0;
             var notes = new List<string>();
+
+            // Output names come from the FBX take, not the file name, so per-actor
+            // exports of one take all resolve to the same name. Plan the whole batch
+            // first: colliding sources keep their original file name as a suffix
+            // instead of overwriting each other.
+            var sourcePaths = new List<string>(_optiTargets.Count);
+            foreach (var obj in _optiTargets)
+                sourcePaths.Add(obj != null ? AssetDatabase.GetAssetPath(obj) : null);
+            var namePlan = OptiTrackMotionBindingService.PlanAnimationNames(sourcePaths, out var planNotes);
+            notes.AddRange(planNotes);
+
             try
             {
                 for (int i = 0; i < _optiTargets.Count; i++)
                 {
                     var obj = _optiTargets[i];
-                    if (obj == null) { fail++; continue; }
-                    string path = AssetDatabase.GetAssetPath(obj);
+                    string path = obj != null ? AssetDatabase.GetAssetPath(obj) : null;
+                    if (string.IsNullOrEmpty(path))
+                    {
+                        fail++;
+                        notes.Add(string.IsNullOrEmpty(sourcePaths[i])
+                            ? $"{i + 1}번 항목: 에셋을 찾을 수 없어 건너뜁니다."
+                            : $"{sourcePaths[i]}: 에셋을 찾을 수 없어 건너뜁니다.");
+                        continue;
+                    }
                     EditorUtility.DisplayProgressBar("옵티트랙 모션 바인딩",
                         $"{obj.name} 처리 중...", (float)i / _optiTargets.Count);
                     try
                     {
-                        if (ProcessOptiTrack(path, out string note)) ok++;
+                        namePlan.TryGetValue(path, out string plannedName);
+                        if (ProcessOptiTrack(path, plannedName, out string note)) ok++;
                         else fail++;
                         if (!string.IsNullOrEmpty(note)) notes.Add(note);
                     }
@@ -450,230 +455,15 @@ namespace YAMO.UnityTools.Editor
         /// <summary>
         /// Full OptiTrack binding pipeline for a single motion FBX (steps 1–8).
         /// </summary>
-        private static bool ProcessOptiTrack(string path, out string note)
+        private static bool ProcessOptiTrack(string path, string plannedName, out string note)
         {
             var result = OptiTrackMotionBindingService.Process(
                 path,
-                ExistingMotionAssetPolicy.Overwrite);
+                ExistingMotionAssetPolicy.Disambiguate,
+                plannedName);
             note = result.Note ?? string.Empty;
             return result.Succeeded;
         }
-
-        private static bool LegacyProcessOptiTrack(string path, out string note)
-        {
-            note = "";
-            var imp = AssetImporter.GetAtPath(path) as ModelImporter;
-            if (imp == null) { note = $"{path}: ModelImporter 아님"; return false; }
-
-            // Step 1 — resolve animation name (clip name minus fixed "_FBX" suffix).
-            string animName = SanitizeFileName(ResolveAnimName(imp));
-            if (string.IsNullOrEmpty(animName)) { note = $"{path}: 애니메이션 이름을 찾을 수 없음"; return false; }
-
-            string dir = Path.GetDirectoryName(path).Replace('\\', '/');
-
-            // Step 1 — rename the motion asset to the animation name.
-            string motionPath = $"{dir}/{animName}.fbx";
-            if (!PathsEqual(path, motionPath))
-            {
-                if (AssetDatabase.LoadMainAssetAtPath(motionPath) != null)
-                    AssetDatabase.DeleteAsset(motionPath);          // overwrite
-                string err = AssetDatabase.RenameAsset(path, animName);
-                if (!string.IsNullOrEmpty(err)) { note = $"{path}: 리네임 실패 - {err}"; return false; }
-                path = motionPath;
-                imp = AssetImporter.GetAtPath(path) as ModelImporter;
-            }
-
-            // Seed the clip list from the raw take BEFORE switching avatar mode.
-            var clips = imp.clipAnimations;
-            if (clips == null || clips.Length == 0) clips = imp.defaultClipAnimations;
-
-            // Step 2 — copy to "{name}_T.fbx" (overwrite if present).
-            string tPath = $"{dir}/{animName}_T.fbx";
-            if (AssetDatabase.LoadMainAssetAtPath(tPath) != null)
-                AssetDatabase.DeleteAsset(tPath);
-            if (!AssetDatabase.CopyAsset(path, tPath)) { note = $"{path}: _T 복사 실패"; return false; }
-
-            // Steps 3–6 — build the T-pose humanoid avatar on the copy.
-            if (!BuildTPoseAvatar(tPath, out Avatar tAvatar, out note)) return false;
-
-            // Step 7 — motion copies the T-pose avatar; Step 8 — clip settings.
-            imp.animationType = ModelImporterAnimationType.Human;
-            imp.importAnimation = true;
-            imp.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
-            imp.sourceAvatar = tAvatar;
-
-            imp.animationCompression = ModelImporterAnimationCompression.Off;
-            if (clips != null && clips.Length > 0)
-            {
-                if (clips.Length == 1) clips[0].name = animName;
-                foreach (var clip in clips)
-                {
-                    clip.lockRootRotation = true;
-                    clip.keepOriginalOrientation = true;
-                    clip.lockRootHeightY = true;
-                    clip.keepOriginalPositionY = true;
-                    clip.lockRootPositionXZ = true;
-                    clip.keepOriginalPositionXZ = true;
-                }
-                imp.clipAnimations = clips;
-            }
-
-            imp.SaveAndReimport();
-
-            // Replicate the Rig tab "Update" button. Assigning sourceAvatar alone
-            // leaves the copied-avatar rig "out of date" (humanDescription mismatch),
-            // which surfaces as "Error(s) found while importing rig in this animation
-            // file". Copying the source's human description makes them match.
-            var tImp = AssetImporter.GetAtPath(tPath) as ModelImporter;
-            if (tImp != null && TryCopyHumanDescription(tImp, imp))
-                imp.SaveAndReimport();
-            else
-                note = $"{path}: T 아바타 자동 동기화 실패 - Rig 탭에서 Update를 눌러주세요.";
-
-            return true;
-        }
-
-        /// <summary>
-        /// Copies the source model's human description into the destination model
-        /// via UnityEditor.ModelImporterRigEditor.CopyHumanDescriptionToDestination
-        /// (internal, reached by reflection) — the same operation the Rig tab's
-        /// "Update" button performs for Copy-From-Other-Avatar rigs.
-        /// </summary>
-        private static bool TryCopyHumanDescription(ModelImporter source, ModelImporter dest)
-        {
-            if (!_copyReflectionResolved)
-            {
-                _copyReflectionResolved = true;
-                var rigEditor = typeof(UnityEditor.Editor).Assembly
-                    .GetType("UnityEditor.ModelImporterRigEditor");
-                if (rigEditor != null)
-                    _copyHumanDescription = rigEditor.GetMethod("CopyHumanDescriptionToDestination",
-                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-            }
-            if (_copyHumanDescription == null) return false;
-
-            var srcSO = new SerializedObject(source);
-            var dstSO = new SerializedObject(dest);
-            _copyHumanDescription.Invoke(null, new object[] { srcSO, dstSO });
-            dstSO.ApplyModifiedProperties();
-            return true;
-        }
-
-        /// <summary>
-        /// Configures the "_T" copy as a Humanoid avatar built from the true
-        /// bind/T-pose (obtained by importing without animation), applies the
-        /// OptiTrack spine re-mapping, and strips eye/jaw bones. Returns the
-        /// generated Avatar sub-asset.
-        /// </summary>
-        private static bool BuildTPoseAvatar(string tPath, out Avatar avatar, out string note)
-        {
-            avatar = null;
-            note = "";
-            var tImp = AssetImporter.GetAtPath(tPath) as ModelImporter;
-            if (tImp == null) { note = $"{tPath}: T ModelImporter 아님"; return false; }
-
-            // Steps 3–4 — Humanoid, Create From This Model, no animation (pure T-pose).
-            tImp.animationType = ModelImporterAnimationType.Human;
-            tImp.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
-            tImp.importAnimation = false;
-            tImp.SaveAndReimport();
-
-            var tModel = AssetDatabase.LoadAssetAtPath<GameObject>(tPath);
-            if (tModel == null) { note = $"{tPath}: T 모델 로드 실패"; return false; }
-
-            if (!TryCaptureHumanoid(tModel, out var human, out var skeleton, out bool dof))
-            { note = $"{tPath}: 휴머노이드 매핑 캡처 실패 (AvatarSetupTool 접근 불가)"; return false; }
-
-            // Detect the per-actor prefix from the Hips bone (e.g. "001_Hips" → "001").
-            string prefix = null;
-            foreach (var h in human)
-                if (h.humanName == "Hips" && !string.IsNullOrEmpty(h.boneName) && h.boneName.EndsWith("_Hips"))
-                { prefix = h.boneName.Substring(0, h.boneName.Length - "_Hips".Length); break; }
-            if (string.IsNullOrEmpty(prefix)) { note = $"{tPath}: Hips 본에서 접두사 탐지 실패"; return false; }
-
-            // Steps 5–6 — override spine chain, strip eyes/jaw.
-            var remapped = new List<HumanBone>(human.Length);
-            foreach (var h in human)
-            {
-                if (h.humanName == "LeftEye" || h.humanName == "RightEye" || h.humanName == "Jaw")
-                    continue;                                   // Step 6: must stay unmapped
-                var hb = h;
-                if (h.humanName == "Spine") hb.boneName = prefix + SpineBone;
-                else if (h.humanName == "Chest") hb.boneName = prefix + ChestBone;
-                else if (h.humanName == "UpperChest") hb.boneName = prefix + UpperChestBone;
-                remapped.Add(hb);
-            }
-
-            var hd = tImp.humanDescription;
-            hd.human = remapped.ToArray();
-            hd.skeleton = skeleton;
-            hd.hasTranslationDoF = dof;
-            tImp.humanDescription = hd;
-            tImp.SaveAndReimport();
-
-            foreach (var o in AssetDatabase.LoadAllAssetsAtPath(tPath))
-                if (o is Avatar a) { avatar = a; break; }
-            if (avatar == null || !avatar.isValid) { note = $"{tPath}: T 아바타 생성 실패/무효"; return false; }
-            return true;
-        }
-
-        /// <summary>
-        /// Captures the auto-generated humanoid mapping + skeleton pose from a
-        /// model via UnityEditor.AvatarSetupTool.SetupHumanSkeleton (internal,
-        /// reached by reflection). The model must currently be in its T-pose.
-        /// </summary>
-        private static bool TryCaptureHumanoid(GameObject model, out HumanBone[] human,
-                                               out SkeletonBone[] skeleton, out bool hasTranslationDoF)
-        {
-            human = null; skeleton = null; hasTranslationDoF = false;
-
-            if (!_reflectionResolved)
-            {
-                _reflectionResolved = true;
-                var astType = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.AvatarSetupTool");
-                if (astType != null)
-                    _setupHumanSkeleton = astType.GetMethod("SetupHumanSkeleton",
-                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-            }
-            if (_setupHumanSkeleton == null) return false;
-
-            var args = new object[] { model, null, null, false };
-            _setupHumanSkeleton.Invoke(null, args);
-            human = args[1] as HumanBone[];
-            skeleton = args[2] as SkeletonBone[];
-            hasTranslationDoF = args[3] is bool b && b;
-            return human != null && human.Length > 0 && skeleton != null && skeleton.Length > 0;
-        }
-
-        // ────────────────────────────── Section 2 helpers
-
-        private static string ResolveAnimName(ModelImporter imp)
-        {
-            string raw = null;
-            var ca = imp.clipAnimations;
-            if (ca != null && ca.Length > 0) raw = ca[0].name;
-            if (string.IsNullOrEmpty(raw))
-            {
-                var dca = imp.defaultClipAnimations;
-                if (dca != null && dca.Length > 0) raw = dca[0].name;
-            }
-            if (string.IsNullOrEmpty(raw)) return null;
-
-            // Strip the fixed trailing "_FBX" suffix (case-insensitive).
-            if (raw.Length >= 4 && raw.Substring(raw.Length - 4).Equals("_FBX", System.StringComparison.OrdinalIgnoreCase))
-                raw = raw.Substring(0, raw.Length - 4);
-            return raw.Trim();
-        }
-
-        private static string SanitizeFileName(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return name;
-            foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
-            return name.Trim();
-        }
-
-        private static bool PathsEqual(string a, string b) =>
-            string.Equals(a.Replace('\\', '/'), b.Replace('\\', '/'), System.StringComparison.OrdinalIgnoreCase);
 
         // ────────────────────────────── Helpers
 
@@ -736,7 +526,8 @@ namespace YAMO.UnityTools.Editor
         // Adds every FBX under the chosen folder(s). Uses folders selected in the
         // Project window; if none are selected, opens a folder-picker dialog.
         private static void AddFromFolders(List<Object> targets, System.Action onChanged,
-                                           System.Action<string> setStatus)
+                                           System.Action<string> setStatus,
+                                           bool skipTPoseAssets = false)
         {
             var folders = new List<string>();
             foreach (var o in Selection.objects)
@@ -758,19 +549,23 @@ namespace YAMO.UnityTools.Editor
                 folders.Add(rel);
             }
 
-            int added = 0;
+            int added = 0, skipped = 0;
             foreach (var guid in AssetDatabase.FindAssets("t:GameObject", folders.ToArray()))
             {
                 string path = AssetDatabase.GUIDToAssetPath(guid);
                 if (Path.GetExtension(path).ToLowerInvariant() != ".fbx") continue;
+                // The generated "_T" avatars are not motions; binding them would
+                // rename the avatar their motion file points at.
+                if (skipTPoseAssets && OptiTrackMotionBindingService.IsTPoseAsset(path)) { skipped++; continue; }
                 var obj = AssetDatabase.LoadMainAssetAtPath(path);
                 if (obj != null && TryAddFbx(targets, obj)) added++;
             }
 
             onChanged?.Invoke();
+            string skipNote = skipped > 0 ? $" (_T 파일 {skipped}개 제외)" : "";
             setStatus?.Invoke(added > 0
-                ? $"폴더에서 {added}개 추가됨."
-                : "폴더 하위에서 추가할 FBX를 찾지 못했습니다.");
+                ? $"폴더에서 {added}개 추가됨.{skipNote}"
+                : $"폴더 하위에서 추가할 FBX를 찾지 못했습니다.{skipNote}");
         }
 
         // Converts an absolute filesystem path to a project-relative (Assets/… or

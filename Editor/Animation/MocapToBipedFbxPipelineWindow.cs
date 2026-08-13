@@ -214,7 +214,9 @@ namespace YAMO.UnityTools.Editor
                 hingeBakeMode);
             hingeAxis = (ForearmHingeAxis)EditorGUILayout.EnumPopup("Forearm Hinge Axis", hingeAxis);
             existingBindingPolicy = (ExistingMotionAssetPolicy)EditorGUILayout.EnumPopup(
-                new GUIContent("기존 Motion/_T 충돌", "Fail은 기존 에셋을 보호하고, Overwrite는 기존 도구와 동일하게 교체합니다."),
+                new GUIContent("기존 Motion/_T 충돌",
+                    "Fail은 기존 에셋을 보호하고, Overwrite는 교체하며, "
+                    + "Disambiguate는 이름 뒤에 번호를 붙여 양쪽 모두 남깁니다."),
                 existingBindingPolicy);
             continueOnError = EditorGUILayout.Toggle("오류 시 다음 항목 계속", continueOnError);
 
