@@ -218,6 +218,38 @@ namespace YAMO.UnityTools.Editor.Tests
         }
 
         [Test]
+        public void OutputNamesQualifyCollisionsWithTheSourceFileName()
+        {
+            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Distinct names are left alone.
+            Assert.That(
+                MocapPipelineOutputNaming.MakeUnique(
+                    new MocapPipelineItem(), "Drip_003_001", "Assets/Mocap/001.fbx", usedNames),
+                Is.EqualTo("Drip_003_001"));
+
+            // A second item wanting the same output is named after its source file,
+            // not an opaque "_2".
+            var explicitName = new MocapPipelineItem { OutputName = "Drip_003_001" };
+            Assert.That(
+                MocapPipelineOutputNaming.MakeUnique(
+                    explicitName, "ignored", "Assets/Mocap/002.fbx", usedNames),
+                Is.EqualTo("Drip_003_001_002"));
+
+            // Only when the source name adds nothing does the numeric suffix apply.
+            Assert.That(
+                MocapPipelineOutputNaming.MakeUnique(
+                    new MocapPipelineItem(), "Drip_003_001", "Assets/Mocap/001.fbx", usedNames),
+                Is.EqualTo("Drip_003_001_2"));
+
+            // Empty output names fall back rather than producing ".fbx".
+            Assert.That(
+                MocapPipelineOutputNaming.MakeUnique(
+                    new MocapPipelineItem(), "   ", null, usedNames),
+                Is.EqualTo("Motion"));
+        }
+
+        [Test]
         public void PlanAnimationNamesSkipsGeneratedTPoseAssets()
         {
             Assert.That(OptiTrackMotionBindingService.IsTPoseAsset("Assets/Motion/Drip_003_T.fbx"), Is.True);

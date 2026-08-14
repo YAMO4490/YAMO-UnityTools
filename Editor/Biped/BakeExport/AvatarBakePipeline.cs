@@ -333,6 +333,13 @@ namespace YAMO.UnityTools.Editor
                 AssetDatabase.SaveAssets();
                 log.Info($"Prefab saved: {opt.PrefabProjectPath}");
 
+                // ---------------- 11b) 숨김 오브젝트 명세(.md) ----------------
+                // FBX에는 모든 오브젝트가 "보이는 상태"로 들어가므로, 프리팹에서 어떤 것이
+                // 비활성인지 3ds Max 쪽에서 알 방법이 없다. 텍스처 매핑 TSV와 같은 역할의
+                // 인계 문서를 프리팹 옆에 남긴다.
+                EditorUtility.DisplayProgressBar(PB_TITLE, "Writing hidden-object doc...", 0.98f);
+                WriteHiddenObjectsDoc(targetInstance, opt, log);
+
                 if (opt.VerboseDiagnostics)
                 {
                     LogSmrInventory("[DIAG @11a targetInstance (pre-cleanup, post-save)]", targetInstance, log);
@@ -590,6 +597,143 @@ namespace YAMO.UnityTools.Editor
         /// 동일 인덱스로 lockstep 순회하면서 activeSelf 를 복원합니다.
         /// (베이크 후 source 트리 구조가 변하지 않아야 정확히 일치)
         /// </summary>
+        // ─────────────────────────────────────────────────────────────
+        // 숨김 오브젝트 명세(.md) 생성
+        //
+        // 목적: FBX는 활성/비활성 상태를 담지 못한다(베이크는 전체를 활성화한 뒤 굽는다).
+        //       3ds Max에서 FBX를 열면 전부 보이는 상태이므로, Unity 프리팹과 같은 외형을
+        //       재현하려면 "무엇을 숨겨야 하는지"를 알려주는 인계 문서가 필요하다.
+        //       `Textures/YAMO_MaxMainTextureMap.tsv`(텍스처 자동 매칭)와 같은 성격의 파일.
+        //
+        // 출력: 프리팹과 같은 폴더의 `YAMO_HiddenObjects.md`
+        // ─────────────────────────────────────────────────────────────
+        public const string HiddenObjectsDocFileName = "YAMO_HiddenObjects.md";
+
+        private class HiddenEntry
+        {
+            public string Name;
+            public string Path;
+            public string Kind;
+            public string Reason;
+            public bool IsMesh;
+        }
+
+        private static void WriteHiddenObjectsDoc(GameObject root, AvatarBakeOptions opt, IMigrationLog log)
+        {
+            try
+            {
+                string dir = System.IO.Path.GetDirectoryName(opt.PrefabProjectPath).Replace('\\', '/');
+                string assetPath = dir + "/" + HiddenObjectsDocFileName;
+                string prefabName = System.IO.Path.GetFileNameWithoutExtension(opt.PrefabProjectPath);
+
+                var all = root.GetComponentsInChildren<Transform>(true);
+                var entries = new List<HiddenEntry>();
+
+                foreach (var t in all)
+                {
+                    if (t == root.transform) continue;
+
+                    var renderer = t.GetComponent<Renderer>();
+                    bool isMesh = renderer != null;
+
+                    // 숨김 사유 판정 (여러 개가 동시에 성립할 수 있어 모두 기록)
+                    var reasons = new List<string>();
+                    if (!t.gameObject.activeSelf) reasons.Add("자기 비활성");
+
+                    // 부모 체인(루트 제외)에서 비활성인 최초 조상
+                    Transform hidingParent = null;
+                    for (var p = t.parent; p != null && p != root.transform.parent; p = p.parent)
+                    {
+                        if (p == root.transform) break;
+                        if (!p.gameObject.activeSelf) { hidingParent = p; break; }
+                    }
+                    if (hidingParent != null) reasons.Add($"부모 비활성 ({hidingParent.name})");
+
+                    if (renderer != null && !renderer.enabled) reasons.Add("렌더러 컴포넌트 비활성");
+
+                    if (reasons.Count == 0) continue;
+
+                    entries.Add(new HiddenEntry
+                    {
+                        Name = t.name,
+                        Path = GetRelativePath(t, root.transform),
+                        Kind = renderer != null ? renderer.GetType().Name : "그룹/본 (메시 없음)",
+                        Reason = string.Join(" + ", reasons),
+                        IsMesh = isMesh,
+                    });
+                }
+
+                var meshEntries = entries.Where(e => e.IsMesh).ToList();
+                var nonMeshEntries = entries.Where(e => !e.IsMesh).ToList();
+                int totalObjects = all.Length - 1;
+
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"# 숨김 오브젝트 명세 — {prefabName}");
+                sb.AppendLine();
+                sb.AppendLine($"- 생성: {System.DateTime.Now:yyyy-MM-dd HH:mm:ss} (AvatarBakePipeline 자동 생성)");
+                sb.AppendLine($"- 프리팹: `{opt.PrefabProjectPath}`");
+                sb.AppendLine($"- FBX: `{opt.FbxProjectPath}`");
+                sb.AppendLine($"- 전체 오브젝트 {totalObjects}개 중 숨김 {entries.Count}개 (메시 {meshEntries.Count} / 그룹·본 {nonMeshEntries.Count})");
+                sb.AppendLine();
+                sb.AppendLine("> **FBX에는 활성/비활성 상태가 담기지 않습니다.** 베이크는 전체를 활성화한 상태로 굽기 때문에,");
+                sb.AppendLine("> 3ds Max에서 임포트하면 모든 오브젝트가 보이는 상태입니다.");
+                sb.AppendLine("> 아래 **메시** 목록을 숨기면 Unity 프리팹과 동일한 외형이 됩니다.");
+                sb.AppendLine();
+
+                sb.AppendLine("## 숨겨야 할 메시");
+                sb.AppendLine();
+                if (meshEntries.Count == 0)
+                {
+                    sb.AppendLine("없음 — 모든 메시가 보이는 상태입니다.");
+                }
+                else
+                {
+                    sb.AppendLine("| 오브젝트명 | 계층 경로 | 종류 | 숨김 사유 |");
+                    sb.AppendLine("|---|---|---|---|");
+                    foreach (var e in meshEntries)
+                        sb.AppendLine($"| `{e.Name}` | `{e.Path}` | {e.Kind} | {e.Reason} |");
+                }
+                sb.AppendLine();
+
+                sb.AppendLine("## 비활성 그룹·본 (참고)");
+                sb.AppendLine();
+                sb.AppendLine("메시가 없는 오브젝트라 숨기지 않아도 외형에는 영향이 없습니다. 원본 구조 파악용 참고 정보입니다.");
+                sb.AppendLine();
+                if (nonMeshEntries.Count == 0)
+                {
+                    sb.AppendLine("없음");
+                }
+                else
+                {
+                    sb.AppendLine("| 오브젝트명 | 계층 경로 | 숨김 사유 |");
+                    sb.AppendLine("|---|---|---|");
+                    foreach (var e in nonMeshEntries)
+                        sb.AppendLine($"| `{e.Name}` | `{e.Path}` | {e.Reason} |");
+                }
+                sb.AppendLine();
+
+                // 스크립트가 파싱하는 구간. 형식을 바꾸면 3ds Max 쪽 스크립트도 함께 고쳐야 한다.
+                sb.AppendLine("## 기계 판독용 목록");
+                sb.AppendLine();
+                sb.AppendLine("아래 코드블록은 3ds Max 스크립트가 파싱합니다. **한 줄에 오브젝트명 하나**, 주석·빈 줄 없음.");
+                sb.AppendLine();
+                sb.AppendLine("```hide-meshes");
+                foreach (var e in meshEntries) sb.AppendLine(e.Name);
+                sb.AppendLine("```");
+
+                string fullPath = ProjectRelativeToAbsolute(assetPath);
+                EnsureDirectory(System.IO.Path.GetDirectoryName(fullPath));
+                File.WriteAllText(fullPath, sb.ToString(), new System.Text.UTF8Encoding(false));
+                AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+                log.Info($"Hidden-object doc written: {assetPath} (메시 {meshEntries.Count} / 전체 숨김 {entries.Count})");
+            }
+            catch (System.Exception e)
+            {
+                // 명세 생성 실패가 베이크 전체를 실패시키지는 않도록 한다.
+                log.Error($"Hidden-object doc write failed: {e.Message}");
+            }
+        }
+
         private static void RestoreActiveStatesFromSnapshot(Transform source, Transform snapshot)
         {
             source.gameObject.SetActive(snapshot.gameObject.activeSelf);

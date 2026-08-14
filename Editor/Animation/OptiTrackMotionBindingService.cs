@@ -408,7 +408,12 @@ namespace YAMO.UnityTools.Editor
             return candidate;
         }
 
-        private static string AppendSourceName(string takeName, string sourceName)
+        /// <summary>
+        /// The shared disambiguation rule: qualify a colliding name with the source
+        /// file name (the actor number for per-actor OptiTrack exports), unless the
+        /// name already carries it. Returns the name unchanged when it adds nothing.
+        /// </summary>
+        public static string AppendSourceName(string takeName, string sourceName)
         {
             sourceName = SanitizeFileName(sourceName);
             if (string.IsNullOrEmpty(sourceName))

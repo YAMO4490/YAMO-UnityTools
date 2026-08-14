@@ -180,7 +180,8 @@ namespace YAMO.UnityTools.Editor
                 fallbackOutputName = result.Binding.AnimationName;
             }
 
-            var outputName = MakeUniqueOutputName(item, fallbackOutputName, usedNames);
+            var outputName = MocapPipelineOutputNaming.MakeUnique(
+                item, fallbackOutputName, sourcePath, usedNames);
             ValidateRange(item, sourceClip);
 
             ForearmHingeBakeResult hingeResult = null;
@@ -276,17 +277,46 @@ namespace YAMO.UnityTools.Editor
                 throw new InvalidOperationException($"{clip.name}: 출력 구간이 클립 범위를 벗어났습니다.");
         }
 
-        private static string MakeUniqueOutputName(
+        private static void ThrowIfCancelled(
+            Func<string, float, bool> callback,
+            string message,
+            float progress)
+        {
+            if (callback?.Invoke(message, progress) == true)
+                throw new OperationCanceledException("Mocap 파이프라인이 취소되었습니다.");
+        }
+    }
+
+    /// <summary>
+    /// Output FBX naming, shared by the Edit Mode pipeline and the Play Mode runner
+    /// so both disambiguate identically.
+    /// </summary>
+    public static class MocapPipelineOutputNaming
+    {
+        public static string MakeUnique(
             MocapPipelineItem item,
-            string boundAnimationName,
+            string fallbackName,
+            string sourcePath,
             ISet<string> usedNames)
         {
-            var requested = string.IsNullOrWhiteSpace(item.OutputName)
-                ? boundAnimationName
-                : item.OutputName;
-            foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
-                requested = requested.Replace(invalidCharacter, '_');
-            requested = string.IsNullOrWhiteSpace(requested) ? "Motion" : requested.Trim();
+            var requested = Sanitize(
+                string.IsNullOrWhiteSpace(item.OutputName) ? fallbackName : item.OutputName);
+            requested = string.IsNullOrWhiteSpace(requested) ? "Motion" : requested;
+
+            if (usedNames.Add(requested))
+                return requested;
+
+            // Two items want the same output file. Prefer naming them after their
+            // source files (the actor number for per-actor exports) over an opaque
+            // "_2", so the finished FBX still says which capture it came from.
+            var sourceName = Sanitize(Path.GetFileNameWithoutExtension(sourcePath ?? string.Empty));
+            if (!string.IsNullOrEmpty(sourceName))
+            {
+                var qualified = OptiTrackMotionBindingService.AppendSourceName(requested, sourceName);
+                if (!string.Equals(qualified, requested, StringComparison.Ordinal) &&
+                    usedNames.Add(qualified))
+                    return qualified;
+            }
 
             var candidate = requested;
             var suffix = 2;
@@ -295,13 +325,13 @@ namespace YAMO.UnityTools.Editor
             return candidate;
         }
 
-        private static void ThrowIfCancelled(
-            Func<string, float, bool> callback,
-            string message,
-            float progress)
+        private static string Sanitize(string name)
         {
-            if (callback?.Invoke(message, progress) == true)
-                throw new OperationCanceledException("Mocap 파이프라인이 취소되었습니다.");
+            if (string.IsNullOrEmpty(name))
+                return name;
+            foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
+                name = name.Replace(invalidCharacter, '_');
+            return name.Trim();
         }
     }
 

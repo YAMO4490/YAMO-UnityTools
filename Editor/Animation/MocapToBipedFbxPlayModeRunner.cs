@@ -181,6 +181,17 @@ namespace YAMO.UnityTools.Editor
             var enabledItems = items.Where(item => item != null && item.Enabled).ToList();
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            // Binding names its output after the FBX take, so per-actor exports of one
+            // take all resolve to the same target file. That is worse here than in the
+            // one-shot tool: every item is bound up front and its clip is held until
+            // Play Mode ends, so a later item deleting an earlier item's motion asset
+            // leaves a dangling clip in the temp controller. Plan the names first.
+            var bindingNames = OptiTrackMotionBindingService.PlanAnimationNames(
+                enabledItems.Select(item => AssetDatabase.GetAssetPath(item.SourceFbx)),
+                out var bindingNameNotes);
+            foreach (var note in bindingNameNotes)
+                Debug.Log($"[MocapPipeline] {note}");
+
             for (var index = 0; index < enabledItems.Count; index++)
             {
                 var item = enabledItems[index];
@@ -206,9 +217,11 @@ namespace YAMO.UnityTools.Editor
                                 $"{item.SourceFbx?.name}: 지원되는 FBX 또는 Anim 에셋이 아닙니다.");
 
                         OptiTrackMotionBindingService.EnsureSourceBackup(sourcePath, out _);
+                        bindingNames.TryGetValue(sourcePath, out var plannedBindingName);
                         var binding = OptiTrackMotionBindingService.Process(
                             sourcePath,
-                            settings.ExistingBindingPolicy);
+                            settings.ExistingBindingPolicy,
+                            plannedBindingName);
                         if (!binding.Succeeded || binding.AnimationClip == null)
                             throw new InvalidOperationException(binding.Note ?? "OptiTrack 바인딩에 실패했습니다.");
 
@@ -217,7 +230,8 @@ namespace YAMO.UnityTools.Editor
                     }
 
                     ValidateRange(item, sourceClip);
-                    var outputName = MakeUniqueOutputName(item, fallbackOutputName, usedNames);
+                    var outputName = MocapPipelineOutputNaming.MakeUnique(
+                        item, fallbackOutputName, sourcePath, usedNames);
                     var preparedIndex = state.Items.Count;
                     state.Items.Add(new PreparedItem
                     {
@@ -464,22 +478,6 @@ namespace YAMO.UnityTools.Editor
             var duration = item.Duration > 0f ? item.Duration : clip.length - item.StartTime;
             if (duration <= 0f || item.StartTime + duration > clip.length + 0.0001f)
                 throw new InvalidOperationException($"{clip.name}: 출력 구간이 클립 범위를 벗어났습니다.");
-        }
-
-        private static string MakeUniqueOutputName(
-            MocapPipelineItem item,
-            string fallback,
-            ISet<string> usedNames)
-        {
-            var requested = string.IsNullOrWhiteSpace(item.OutputName) ? fallback : item.OutputName;
-            foreach (var invalidCharacter in Path.GetInvalidFileNameChars())
-                requested = requested.Replace(invalidCharacter, '_');
-            requested = string.IsNullOrWhiteSpace(requested) ? "Motion" : requested.Trim();
-            var candidate = requested;
-            var suffix = 2;
-            while (!usedNames.Add(candidate))
-                candidate = $"{requested}_{suffix++}";
-            return candidate;
         }
 
         private static void ShowNoPreparedItems(IReadOnlyList<string> errors)
