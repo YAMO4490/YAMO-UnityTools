@@ -4,6 +4,7 @@ using System.Reflection;
 using UnityEditor;
 using UnityEditor.ShortcutManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 #if UNITY_2021_2_OR_NEWER
 using UnityEditor.Overlays;
@@ -19,6 +20,8 @@ namespace YAMO.UnityTools.Editor
         private const string OutputFolder = "Assets/Screenshots";
         private const int FallbackWidth = 1920;
         private const int FallbackHeight = 1080;
+        private const string UniversalRenderPipelineAssetTypeName =
+            "UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset";
 
         [MenuItem(MenuPath)]
         public static void Capture()
@@ -61,15 +64,61 @@ namespace YAMO.UnityTools.Editor
         {
             var previousTarget = camera.targetTexture;
             var previousActive = RenderTexture.active;
-            var renderTexture = RenderTexture.GetTemporary(width, height, 24, RenderTextureFormat.ARGB32);
-            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            object renderPipelineAsset = null;
+            PropertyInfo renderScaleProperty = null;
+            float previousRenderScale = 1f;
+            bool renderScaleOverridden = false;
+            RenderTexture renderTexture = null;
+            RenderTexture outputTexture = null;
+            Texture2D texture = null;
 
             try
             {
-                camera.targetTexture = renderTexture;
-                RenderTexture.active = renderTexture;
+                float captureScale = 1f;
+                if (TryGetUrpRenderScale(
+                        out renderPipelineAsset,
+                        out renderScaleProperty,
+                        out previousRenderScale) &&
+                    previousRenderScale > 1f)
+                {
+                    captureScale = previousRenderScale;
 
+                    // URP 12 applies Render Scale's final scaling pass even when a Camera renders
+                    // into an explicitly-sized targetTexture. That mixes the Game View coordinates
+                    // with the offscreen target coordinates and can shift the captured image.
+                    // Render at the scaled resolution directly, then downsample ourselves instead.
+                    renderScaleProperty.SetValue(renderPipelineAsset, 1f);
+                    renderScaleOverridden = true;
+                }
+
+                int renderWidth = Mathf.Max(1, Mathf.RoundToInt(width * captureScale));
+                int renderHeight = Mathf.Max(1, Mathf.RoundToInt(height * captureScale));
+                renderTexture = RenderTexture.GetTemporary(
+                    renderWidth,
+                    renderHeight,
+                    24,
+                    RenderTextureFormat.ARGB32);
+                renderTexture.filterMode = FilterMode.Bilinear;
+
+                outputTexture = renderTexture;
+                if (renderWidth != width || renderHeight != height)
+                {
+                    outputTexture = RenderTexture.GetTemporary(
+                        width,
+                        height,
+                        0,
+                        RenderTextureFormat.ARGB32);
+                    outputTexture.filterMode = FilterMode.Bilinear;
+                }
+
+                texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                camera.targetTexture = renderTexture;
                 camera.Render();
+
+                if (outputTexture != renderTexture)
+                    Graphics.Blit(renderTexture, outputTexture);
+
+                RenderTexture.active = outputTexture;
                 texture.ReadPixels(new Rect(0, 0, width, height), 0, 0);
                 texture.Apply();
 
@@ -80,9 +129,54 @@ namespace YAMO.UnityTools.Editor
             {
                 camera.targetTexture = previousTarget;
                 RenderTexture.active = previousActive;
-                RenderTexture.ReleaseTemporary(renderTexture);
-                UnityEngine.Object.DestroyImmediate(texture);
+
+                if (outputTexture != null && outputTexture != renderTexture)
+                    RenderTexture.ReleaseTemporary(outputTexture);
+                if (renderTexture != null)
+                    RenderTexture.ReleaseTemporary(renderTexture);
+                if (texture != null)
+                    UnityEngine.Object.DestroyImmediate(texture);
+
+                if (renderScaleOverridden)
+                    renderScaleProperty.SetValue(renderPipelineAsset, previousRenderScale);
             }
+        }
+
+        private static bool TryGetUrpRenderScale(
+            out object renderPipelineAsset,
+            out PropertyInfo renderScaleProperty,
+            out float renderScale)
+        {
+            renderPipelineAsset = GraphicsSettings.currentRenderPipeline;
+            renderScaleProperty = null;
+            renderScale = 1f;
+
+            if (renderPipelineAsset == null)
+                return false;
+
+            Type assetType = renderPipelineAsset.GetType();
+            Type currentType = assetType;
+            while (currentType != null && currentType.FullName != UniversalRenderPipelineAssetTypeName)
+                currentType = currentType.BaseType;
+
+            if (currentType == null)
+                return false;
+
+            renderScaleProperty = assetType.GetProperty(
+                "renderScale",
+                BindingFlags.Instance | BindingFlags.Public);
+
+            if (renderScaleProperty == null ||
+                !renderScaleProperty.CanRead ||
+                !renderScaleProperty.CanWrite ||
+                renderScaleProperty.PropertyType != typeof(float))
+            {
+                renderScaleProperty = null;
+                return false;
+            }
+
+            renderScale = (float)renderScaleProperty.GetValue(renderPipelineAsset);
+            return true;
         }
 
         private static Vector2Int ResolveGameViewSize(Camera camera)
