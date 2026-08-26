@@ -17,10 +17,95 @@ namespace YAMO.UnityTools.Editor.Tests
         public void PipelineDefaultsUseSixtyFramesPerSecond()
         {
             Assert.That(new ForearmHingeBakeSettings().SampleRate, Is.EqualTo(60));
+            Assert.That(new ForearmHingeBakeSettings().EnableHingeCorrection, Is.True);
+            Assert.That(new ForearmHingeBakeSettings().HandRotationCompensation, Is.EqualTo(1f));
             Assert.That(new BipedFbxExportSettings().FrameRate, Is.EqualTo(60f));
+            Assert.That(new BipedFbxExportSettings().RecordBlendShapes, Is.False);
+            Assert.That(new BipedFbxExportSettings().ClampedTangents, Is.False);
             Assert.That(new BipedFbxExportSettings().UseCompatibleNames, Is.False);
             Assert.That(new MocapPipelineSettings().SampleRate, Is.EqualTo(60));
             Assert.That(new MocapPipelineSettings().HingeBakeMode, Is.EqualTo(MocapHingeBakeMode.PlayMode));
+            Assert.That(new MocapPipelineSettings().EnableHingeCorrection, Is.True);
+            Assert.That(new MocapPipelineSettings().HandRotationCompensation, Is.EqualTo(1f));
+            Assert.That(new MocapPipelineSettings().RecordBlendShapes, Is.False);
+            Assert.That(new MocapPipelineSettings().ClampedTangents, Is.False);
+        }
+
+        [Test]
+        public void HandCompensationRemovesForearmRotationAbsorbedByWrist()
+        {
+            var root = new GameObject("HingeTestRoot");
+            var upper = new GameObject("UpperArm");
+            var lower = new GameObject("LowerArm");
+            var hand = new GameObject("Hand");
+            upper.transform.SetParent(root.transform, false);
+            lower.transform.SetParent(upper.transform, false);
+            hand.transform.SetParent(lower.transform, false);
+            lower.transform.localPosition = Vector3.right;
+            hand.transform.localPosition = Vector3.right;
+
+            var sourceLowerLocalRotation = Quaternion.AngleAxis(40f, Vector3.right);
+            var sourceHandLocalRotation = Quaternion.AngleAxis(30f, Vector3.right);
+            lower.transform.localRotation = sourceLowerLocalRotation;
+            hand.transform.localRotation = sourceHandLocalRotation;
+            var sourceHandWorldRotation = hand.transform.rotation;
+            var sourceHandPosition = hand.transform.position;
+
+            try
+            {
+                Assert.That(
+                    YAMO.UnityTools.ForearmHingeCorrection.Apply(
+                        upper.transform,
+                        lower.transform,
+                        hand.transform,
+                        Vector3.forward,
+                        0f),
+                    Is.True);
+                Assert.That(Quaternion.Angle(hand.transform.rotation, sourceHandWorldRotation), Is.LessThan(0.01f));
+                Assert.That(
+                    Quaternion.Angle(hand.transform.localRotation, sourceHandLocalRotation),
+                    Is.GreaterThan(30f));
+
+                upper.transform.localRotation = Quaternion.identity;
+                lower.transform.localRotation = sourceLowerLocalRotation;
+                hand.transform.localRotation = sourceHandLocalRotation;
+
+                Assert.That(
+                    YAMO.UnityTools.ForearmHingeCorrection.Apply(
+                        upper.transform,
+                        lower.transform,
+                        hand.transform,
+                        Vector3.forward,
+                        0.5f),
+                    Is.True);
+                Assert.That(
+                    Quaternion.Angle(hand.transform.localRotation, sourceHandLocalRotation),
+                    Is.EqualTo(20f).Within(0.1f));
+
+                upper.transform.localRotation = Quaternion.identity;
+                lower.transform.localRotation = sourceLowerLocalRotation;
+                hand.transform.localRotation = sourceHandLocalRotation;
+
+                Assert.That(
+                    YAMO.UnityTools.ForearmHingeCorrection.Apply(
+                        upper.transform,
+                        lower.transform,
+                        hand.transform,
+                        Vector3.forward,
+                        1f),
+                    Is.True);
+                Assert.That(
+                    Quaternion.Angle(hand.transform.localRotation, sourceHandLocalRotation),
+                    Is.LessThan(0.01f));
+                Assert.That(Vector3.Distance(hand.transform.position, sourceHandPosition), Is.LessThan(0.00001f));
+                Assert.That(
+                    Quaternion.Angle(hand.transform.rotation, sourceHandWorldRotation),
+                    Is.GreaterThan(30f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
         }
 
         [Test]

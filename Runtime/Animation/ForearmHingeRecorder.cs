@@ -22,7 +22,9 @@ namespace YAMO.UnityTools
     {
         // ForearmHingeBaker가 Play Mode 진입 전에 설정하는 파라미터
         [HideInInspector] public int   sampleRate     = 30;
+        [HideInInspector] public bool  enableHingeCorrection = true;
         [HideInInspector] public int   hingeAxisIndex = 2; // 0=X 1=Y 2=Z
+        [HideInInspector, Range(0f, 1f)] public float handRotationCompensation = 1f;
 
         // 결과 파일 경로 (Edit·Play Mode 양쪽에서 동일하게 접근)
         public static string ResultsFilePath =>
@@ -109,8 +111,14 @@ namespace YAMO.UnityTools
                 animator.Update(dt);
 
                 // ② Forearm 힌지 보정
-                foreach (var (u, l, h) in armTriplets)
-                    ApplyHingeCorrection(u, l, h, axisVec);
+                if (enableHingeCorrection)
+                {
+                    foreach (var (u, l, h) in armTriplets)
+                    {
+                        ForearmHingeCorrection.Apply(
+                            animator, u, l, h, axisVec, handRotationCompensation);
+                    }
+                }
 
                 // ③ 전체 본 기록
                 for (int b = 0; b < boneCount; b++)
@@ -141,59 +149,6 @@ namespace YAMO.UnityTools
 
         // ============================================================
         // Forearm 힌지 보정 (ForearmHingeBaker의 알고리즘과 동일)
-        // ============================================================
-        void ApplyHingeCorrection(
-            HumanBodyBones upperBone, HumanBodyBones lowerBone, HumanBodyBones handBone,
-            Vector3 axisVec)
-        {
-            var upper = animator.GetBoneTransform(upperBone);
-            var lower = animator.GetBoneTransform(lowerBone);
-            var hand  = animator.GetBoneTransform(handBone);
-            if (upper == null || lower == null || hand == null) return;
-
-            Vector3    origHandPos = hand.position;
-            Quaternion origHandRot = hand.rotation;
-            Vector3    shoulderPos = upper.position;
-            Vector3    elbowPos    = lower.position;
-
-            lower.localRotation = Quaternion.identity;
-            Vector3 h0 = hand.position - elbowPos;
-
-            lower.localRotation = Quaternion.AngleAxis(90f, axisVec);
-            Vector3 h90 = hand.position - elbowPos;
-
-            Quaternion parentRot = lower.parent != null ? lower.parent.rotation : Quaternion.identity;
-            Vector3 worldAxis = (parentRot * axisVec).normalized;
-
-            Vector3 centerOffset  = Vector3.Dot(h0, worldAxis) * worldAxis;
-            Vector3 r0            = h0  - centerOffset;
-            Vector3 r90           = h90 - centerOffset;
-            Vector3 targetOffset  = origHandPos - elbowPos - centerOffset;
-            Vector3 targetInPlane = targetOffset - Vector3.Dot(targetOffset, worldAxis) * worldAxis;
-
-            float theta = 0f;
-            if (targetInPlane.sqrMagnitude > 1e-10f && r0.sqrMagnitude > 1e-10f)
-            {
-                theta = Mathf.Atan2(
-                    Vector3.Dot(targetInPlane.normalized, r90.normalized),
-                    Vector3.Dot(targetInPlane.normalized, r0.normalized)
-                ) * Mathf.Rad2Deg;
-            }
-
-            lower.localRotation = Quaternion.AngleAxis(theta, axisVec);
-
-            Vector3 curDir = hand.position - shoulderPos;
-            Vector3 tgtDir = origHandPos   - shoulderPos;
-            if (curDir.sqrMagnitude > 1e-8f && tgtDir.sqrMagnitude > 1e-8f)
-                upper.rotation = Quaternion.FromToRotation(curDir.normalized, tgtDir.normalized) * upper.rotation;
-
-            hand.rotation = origHandRot;
-        }
-
-        // ============================================================
-        // 결과 바이너리 직렬화
-        // 형식: frameCount(int) boneCount(int)
-        //       [본마다] path(string) [프레임마다] quat(4f) pos(3f)
         // ============================================================
         void WriteResults(int frames, int bones,
             Quaternion[][] rotData, Vector3[][] posData)

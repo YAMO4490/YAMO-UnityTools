@@ -41,10 +41,12 @@ namespace YAMO.UnityTools.Editor
         public string FbxOutputDirectory { get; set; }
         public int SampleRate { get; set; } = 60;
         public MocapHingeBakeMode HingeBakeMode { get; set; } = MocapHingeBakeMode.PlayMode;
+        public bool EnableHingeCorrection { get; set; } = true;
         public ForearmHingeAxis HingeAxis { get; set; } = ForearmHingeAxis.Z;
+        public float HandRotationCompensation { get; set; } = 1f;
         public ExistingMotionAssetPolicy ExistingBindingPolicy { get; set; } = ExistingMotionAssetPolicy.Fail;
-        public bool RecordBlendShapes { get; set; } = true;
-        public bool ClampedTangents { get; set; } = true;
+        public bool RecordBlendShapes { get; set; }
+        public bool ClampedTangents { get; set; }
         public MotionFbxCurveCompression Compression { get; set; } = MotionFbxCurveCompression.Disabled;
         public bool ExportGeometry { get; set; }
         public bool ExportUnrendered { get; set; } = true;
@@ -194,7 +196,9 @@ namespace YAMO.UnityTools.Editor
                     new ForearmHingeBakeSettings
                     {
                         SampleRate = settings.SampleRate,
-                        HingeAxis = settings.HingeAxis
+                        EnableHingeCorrection = settings.EnableHingeCorrection,
+                        HingeAxis = settings.HingeAxis,
+                        HandRotationCompensation = settings.HandRotationCompensation
                     },
                     (message, progress) =>
                         progressCallback?.Invoke(message, Mathf.Lerp(0.15f, 0.55f, progress)) == true);

@@ -19,11 +19,10 @@ namespace YAMO.UnityTools.Editor
         [SerializeField] private string fbxOutputDirectory;
         [SerializeField] private int sampleRate = 60;
         [SerializeField] private MocapHingeBakeMode hingeBakeMode = MocapHingeBakeMode.PlayMode;
+        [SerializeField] private bool enableHingeCorrection = true;
         [SerializeField] private ForearmHingeAxis hingeAxis = ForearmHingeAxis.Z;
+        [SerializeField, Range(0f, 1f)] private float handRotationCompensation = 1f;
         [SerializeField] private ExistingMotionAssetPolicy existingBindingPolicy = ExistingMotionAssetPolicy.Fail;
-        [SerializeField] private bool recordBlendShapes = true;
-        [SerializeField] private bool clampedTangents = true;
-        [SerializeField] private MotionFbxCurveCompression compression = MotionFbxCurveCompression.Disabled;
         [SerializeField] private bool exportGeometry;
         [SerializeField] private bool exportUnrendered = true;
         [SerializeField] private bool keepInstances = true;
@@ -212,7 +211,33 @@ namespace YAMO.UnityTools.Editor
                     "Hinge Bake Mode",
                     "Play Mode: 실시간 발 IK/Foot Stabilization 포함. Edit Mode: 빠른 오프라인 샘플링."),
                 hingeBakeMode);
-            hingeAxis = (ForearmHingeAxis)EditorGUILayout.EnumPopup("Forearm Hinge Axis", hingeAxis);
+
+            enableHingeCorrection = GUILayout.Toggle(
+                enableHingeCorrection,
+                enableHingeCorrection
+                    ? "Forearm Hinge 보정: 활성화"
+                    : "Forearm Hinge 보정: 비활성화",
+                GUI.skin.button,
+                GUILayout.Height(28f));
+
+            using (new EditorGUI.DisabledScope(!enableHingeCorrection))
+            {
+                hingeAxis = (ForearmHingeAxis)EditorGUILayout.EnumPopup("Forearm Hinge Axis", hingeAxis);
+                handRotationCompensation = EditorGUILayout.Slider(
+                    new GUIContent(
+                        "손목 과회전 제거량",
+                        "0: 기존처럼 손 월드 회전 보존. 1: 원래 손 로컬 회전을 유지해 Forearm에서 제거된 회전이 손목으로 넘어오는 것을 방지."),
+                    handRotationCompensation,
+                    0f,
+                    1f);
+            }
+
+            if (!enableHingeCorrection)
+            {
+                EditorGUILayout.HelpBox(
+                    "Forearm Hinge 보정을 건너뜁니다. Humanoid 포즈의 Generic Transform 베이크와 FBX 출력은 계속 실행됩니다.",
+                    MessageType.Info);
+            }
             existingBindingPolicy = (ExistingMotionAssetPolicy)EditorGUILayout.EnumPopup(
                 new GUIContent("기존 Motion/_T 충돌",
                     "Fail은 기존 에셋을 보호하고, Overwrite는 교체하며, "
@@ -229,9 +254,6 @@ namespace YAMO.UnityTools.Editor
             if (!showAdvanced)
                 return;
 
-            recordBlendShapes = EditorGUILayout.Toggle("BlendShape 기록", recordBlendShapes);
-            compression = (MotionFbxCurveCompression)EditorGUILayout.EnumPopup("키 압축", compression);
-            clampedTangents = EditorGUILayout.Toggle("Clamped Tangents", clampedTangents);
             exportGeometry = EditorGUILayout.Toggle("Geometry 포함", exportGeometry);
             exportUnrendered = EditorGUILayout.Toggle("렌더러 없는 노드 포함", exportUnrendered);
             keepInstances = EditorGUILayout.Toggle("메시 인스턴스 유지", keepInstances);
@@ -244,9 +266,12 @@ namespace YAMO.UnityTools.Editor
         {
             using (new EditorGUI.DisabledScope(!CanRun()))
             {
-                var label = hingeBakeMode == MocapHingeBakeMode.PlayMode
-                    ? "전체 파이프라인 실행 (Play Mode)"
-                    : "전체 파이프라인 실행 (Edit Mode)";
+                var modeLabel = hingeBakeMode == MocapHingeBakeMode.PlayMode
+                    ? "Play Mode"
+                    : "Edit Mode";
+                var label = enableHingeCorrection
+                    ? $"전체 파이프라인 실행 ({modeLabel})"
+                    : $"전체 파이프라인 실행 ({modeLabel} / Hinge 비활성화)";
                 if (GUILayout.Button(label, GUILayout.Height(44f)))
                     RunPipeline();
             }
@@ -260,11 +285,13 @@ namespace YAMO.UnityTools.Editor
                 FbxOutputDirectory = Path.GetFullPath(fbxOutputDirectory),
                 SampleRate = sampleRate,
                 HingeBakeMode = hingeBakeMode,
+                EnableHingeCorrection = enableHingeCorrection,
                 HingeAxis = hingeAxis,
+                HandRotationCompensation = handRotationCompensation,
                 ExistingBindingPolicy = existingBindingPolicy,
-                RecordBlendShapes = recordBlendShapes,
-                ClampedTangents = clampedTangents,
-                Compression = compression,
+                RecordBlendShapes = false,
+                ClampedTangents = false,
+                Compression = MotionFbxCurveCompression.Disabled,
                 ExportGeometry = exportGeometry,
                 ExportUnrendered = exportUnrendered,
                 KeepInstances = keepInstances,

@@ -30,7 +30,9 @@ namespace YAMO.UnityTools.Editor
             public string ResultDirectory;
             public string FbxOutputDirectory;
             public int SampleRate;
+            public bool EnableHingeCorrection;
             public int HingeAxis;
+            public float HandRotationCompensation;
             public int Compression;
             public bool RecordBlendShapes;
             public bool ClampedTangents;
@@ -103,7 +105,9 @@ namespace YAMO.UnityTools.Editor
 
                 recorder = targetAnimator.gameObject.AddComponent<YAMO.UnityTools.ForearmHingeBatchRecorder>();
                 recorder.sampleRate = settings.SampleRate;
+                recorder.enableHingeCorrection = settings.EnableHingeCorrection;
                 recorder.hingeAxisIndex = (int)settings.HingeAxis;
+                recorder.handRotationCompensation = settings.HandRotationCompensation;
                 recorder.stateNames = state.Items.Select(item => item.StateName).ToArray();
                 recorder.resultPaths = state.Items.Select(item => item.ResultPath).ToArray();
 
@@ -113,8 +117,9 @@ namespace YAMO.UnityTools.Editor
                 EditorUtility.ClearProgressBar();
 
                 Debug.Log(
-                    $"[Mocap Pipeline] Play Mode Hinge Bake 시작: {state.Items.Count}개, " +
-                    $"{state.SampleRate}fps");
+                    $"[Mocap Pipeline] Play Mode Pose Bake 시작: {state.Items.Count}개, " +
+                    $"{state.SampleRate}fps, Hinge={(state.EnableHingeCorrection ? "On" : "Off")}, " +
+                    $"Hand Compensation={state.HandRotationCompensation:0.##}");
                 EditorApplication.isPlaying = true;
             }
             catch
@@ -156,7 +161,9 @@ namespace YAMO.UnityTools.Editor
                 ResultDirectory = resultDirectory,
                 FbxOutputDirectory = Path.GetFullPath(settings.FbxOutputDirectory),
                 SampleRate = settings.SampleRate,
+                EnableHingeCorrection = settings.EnableHingeCorrection,
                 HingeAxis = (int)settings.HingeAxis,
+                HandRotationCompensation = Mathf.Clamp01(settings.HandRotationCompensation),
                 Compression = (int)settings.Compression,
                 RecordBlendShapes = settings.RecordBlendShapes,
                 ClampedTangents = settings.ClampedTangents,
@@ -327,7 +334,7 @@ namespace YAMO.UnityTools.Editor
                         hingeResult = ForearmHingeBakeService.LoadPlayModeResult(
                             item.ResultPath,
                             state.SampleRate,
-                            item.OutputName + "_hinged");
+                            item.OutputName + (state.EnableHingeCorrection ? "_hinged" : "_baked"));
 
                         BipedFbxExportService.Export(
                             new BipedFbxExportSettings

@@ -3,6 +3,7 @@
     "rootNamespace": "YAMO.UnityTools.Editor.Tests",
     "references": [
         "YAMO.UnityTools.Editor",
+        "YAMO.UnityTools.Runtime",
         "Unity.Formats.Fbx.Editor",
         "Autodesk.Fbx",
         "UnityEngine.TestRunner",

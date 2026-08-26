@@ -22,8 +22,8 @@ namespace YAMO.UnityTools.Editor
         public float StartTime { get; set; }
         public float Duration { get; set; }
         public float FrameRate { get; set; } = 60f;
-        public bool RecordBlendShapes { get; set; } = true;
-        public bool ClampedTangents { get; set; } = true;
+        public bool RecordBlendShapes { get; set; }
+        public bool ClampedTangents { get; set; }
         public MotionFbxCurveCompression Compression { get; set; } = MotionFbxCurveCompression.Disabled;
         public bool ExportGeometry { get; set; }
         public bool ExportUnrendered { get; set; } = true;
@@ -84,18 +84,27 @@ namespace YAMO.UnityTools.Editor
                     settings.ExportUnrendered,
                     settings.KeepInstances);
 
+                ThrowIfCancelled(progressCallback, "Unity FBX Exporter 출력", 0.72f);
+                var exportStageTimer = System.Diagnostics.Stopwatch.StartNew();
                 var exportedPath = MocapFbxExporterCompat.ExportObject(
                     unityTemporaryPath,
                     clone,
                     exportOptions);
+                Debug.Log(
+                    $"[Mocap Pipeline] Unity FBX Exporter 완료: " +
+                    $"{exportStageTimer.Elapsed.TotalSeconds:0.###}s");
                 if (string.IsNullOrEmpty(exportedPath) || !File.Exists(exportedPath))
                     throw new InvalidOperationException("Unity FBX Exporter가 임시 FBX를 생성하지 못했습니다.");
 
                 ThrowIfCancelled(progressCallback, "3ds Max Z-up 변환", 0.82f);
+                exportStageTimer.Restart();
                 var conversion = MaxFbxSceneConverter.Convert(
                     exportedPath,
                     maxTemporaryPath,
                     settings.EmbedTextures);
+                Debug.Log(
+                    $"[Mocap Pipeline] 3ds Max Z-up 변환 완료: " +
+                    $"{exportStageTimer.Elapsed.TotalSeconds:0.###}s");
 
                 ThrowIfCancelled(progressCallback, "최종 FBX 저장", 0.96f);
                 var backupPath = ReplaceTarget(maxTemporaryPath, outputPath, settings.CreateBackup);
@@ -132,6 +141,19 @@ namespace YAMO.UnityTools.Editor
             if (AnimationMode.InAnimationMode())
                 throw new InvalidOperationException("Animation Preview가 활성화되어 있습니다. Preview를 끈 뒤 다시 실행하세요.");
 
+            return BakeWithGameObjectRecorder(
+                samplingRoot,
+                settings,
+                progressCallback,
+                out sampleCount);
+        }
+
+        private static AnimationClip BakeWithGameObjectRecorder(
+            GameObject samplingRoot,
+            BipedFbxExportSettings settings,
+            Func<string, float, bool> progressCallback,
+            out int sampleCount)
+        {
             var recorder = new GameObjectRecorder(samplingRoot);
             recorder.BindComponentsOfType(samplingRoot, typeof(Transform), true);
             if (settings.RecordBlendShapes)
@@ -142,6 +164,12 @@ namespace YAMO.UnityTools.Editor
             var frameCount = Mathf.Max(1, Mathf.CeilToInt(duration * settings.FrameRate));
             var previousTime = settings.StartTime;
             sampleCount = frameCount + 1;
+            var transformCount = samplingRoot.GetComponentsInChildren<Transform>(true).Length;
+            Debug.Log(
+                $"[Mocap Pipeline] Final bake 시작: {transformCount} Transform, " +
+                $"{sampleCount} samples, BlendShapes={settings.RecordBlendShapes}, " +
+                $"ClampedTangents={settings.ClampedTangents}, Compression={settings.Compression}");
+            var stageTimer = System.Diagnostics.Stopwatch.StartNew();
 
             AnimationMode.StartAnimationMode();
             try
@@ -174,11 +202,25 @@ namespace YAMO.UnityTools.Editor
             {
                 AnimationMode.StopAnimationMode();
             }
+            Debug.Log(
+                $"[Mocap Pipeline] Final bake 샘플링 완료: " +
+                $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
 
             var clip = new AnimationClip { frameRate = settings.FrameRate };
+            ThrowIfCancelled(progressCallback, $"{settings.Clip.name}: AnimationClip 커브 생성", 0.99f);
+            stageTimer.Restart();
             recorder.SaveToClip(clip, settings.FrameRate, GetCurveFilterOptions(settings.Compression));
+            Debug.Log(
+                $"[Mocap Pipeline] AnimationClip 커브 생성 완료: " +
+                $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
             if (settings.ClampedTangents)
+            {
+                stageTimer.Restart();
                 ApplyClampedTangents(clip);
+                Debug.Log(
+                    $"[Mocap Pipeline] ClampedAuto 탄젠트 완료: " +
+                    $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
+            }
             return clip;
         }
 

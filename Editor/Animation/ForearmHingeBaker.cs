@@ -99,6 +99,8 @@ namespace YAMO.UnityTools.Editor
         Animator      animator;
         AnimationClip sourceClip;
         int           sampleRate = 30;
+        bool          enableHingeCorrection = true;
+        float         handRotationCompensation = 1f;
 
         enum HingeAxis { X, Y, Z }
         HingeAxis hingeAxis = HingeAxis.Z;
@@ -124,7 +126,20 @@ namespace YAMO.UnityTools.Editor
 
             EditorGUILayout.Space(4);
             sampleRate = EditorGUILayout.IntSlider("샘플레이트 (fps)", sampleRate, 1, 120);
-            hingeAxis  = (HingeAxis)EditorGUILayout.EnumPopup("Forearm 힌지축 (로컬)", hingeAxis);
+            enableHingeCorrection = GUILayout.Toggle(
+                enableHingeCorrection,
+                enableHingeCorrection ? "Forearm Hinge 보정: 활성화" : "Forearm Hinge 보정: 비활성화",
+                GUI.skin.button,
+                GUILayout.Height(26f));
+            using (new EditorGUI.DisabledScope(!enableHingeCorrection))
+            {
+                hingeAxis = (HingeAxis)EditorGUILayout.EnumPopup("Forearm 힌지축 (로컬)", hingeAxis);
+                handRotationCompensation = EditorGUILayout.Slider(
+                    "손목 과회전 제거량",
+                    handRotationCompensation,
+                    0f,
+                    1f);
+            }
 
             EditorGUILayout.Space(4);
             EditorGUILayout.HelpBox(
@@ -160,7 +175,9 @@ namespace YAMO.UnityTools.Editor
                     new ForearmHingeBakeSettings
                     {
                         SampleRate = sampleRate,
-                        HingeAxis = (ForearmHingeAxis)(int)hingeAxis
+                        EnableHingeCorrection = enableHingeCorrection,
+                        HingeAxis = (ForearmHingeAxis)(int)hingeAxis,
+                        HandRotationCompensation = handRotationCompensation
                     },
                     (message, progress) =>
                     {
@@ -310,7 +327,9 @@ namespace YAMO.UnityTools.Editor
             // 3. Recorder 컴포넌트 추가
             var recorder             = animator.gameObject.AddComponent<YAMO.UnityTools.ForearmHingeRecorder>();
             recorder.sampleRate      = sampleRate;
+            recorder.enableHingeCorrection = enableHingeCorrection;
             recorder.hingeAxisIndex  = (int)hingeAxis;
+            recorder.handRotationCompensation = handRotationCompensation;
 
             // 4. 복귀 후 처리에 필요한 정보를 SessionState에 저장
             SessionState.SetBool  ("YAMO.ForearmHinge.PendingBake",     true);
