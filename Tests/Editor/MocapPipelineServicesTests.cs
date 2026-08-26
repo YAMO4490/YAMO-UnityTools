@@ -109,6 +109,67 @@ namespace YAMO.UnityTools.Editor.Tests
         }
 
         [Test]
+        public void OptiTrackSuffixMappingFindsNumericPrefixedHumanoidBones()
+        {
+            var root = new GameObject("OptiTrackMappingRoot");
+            try
+            {
+                var suffixes = new[]
+                {
+                    "_Hips",
+                    "_LeftUpLeg",
+                    "_RightUpLeg",
+                    "_LeftLeg",
+                    "_RightLeg",
+                    "_LeftFoot",
+                    "_RightFoot",
+                    "_Spine",
+                    "_Spine1",
+                    "_Spine4",
+                    "_Head",
+                    "_LeftArm",
+                    "_RightArm",
+                    "_LeftForeArm",
+                    "_RightForeArm",
+                    "_LeftHand",
+                    "_RightHand"
+                };
+                foreach (var suffix in suffixes)
+                {
+                    var bone = new GameObject("001" + suffix);
+                    bone.transform.SetParent(root.transform, false);
+                }
+
+                var method = typeof(OptiTrackMotionBindingService).GetMethod(
+                    "TryBuildOptiTrackHumanoid",
+                    BindingFlags.NonPublic | BindingFlags.Static);
+                Assert.That(method, Is.Not.Null);
+
+                var arguments = new object[] { root, null, null, false, null };
+                Assert.That((bool)method.Invoke(null, arguments), Is.True, arguments[4] as string);
+                var human = (HumanBone[])arguments[1];
+                var skeleton = (SkeletonBone[])arguments[2];
+
+                Assert.That(
+                    human.Single(bone => bone.humanName == "Hips").boneName,
+                    Is.EqualTo("001_Hips"));
+                Assert.That(
+                    human.Single(bone => bone.humanName == "Spine").boneName,
+                    Is.EqualTo("001_Spine"));
+                Assert.That(
+                    human.Single(bone => bone.humanName == "Chest").boneName,
+                    Is.EqualTo("001_Spine1"));
+                Assert.That(human.Any(bone => bone.humanName == "UpperChest"), Is.False);
+                Assert.That(skeleton.Length, Is.EqualTo(root.GetComponentsInChildren<Transform>(true).Length));
+                Assert.That((bool)arguments[3], Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void PlayModeResultBuildsInMemoryGenericTransformClip()
         {
             var path = Path.GetFullPath(Path.Combine(

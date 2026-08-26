@@ -38,10 +38,64 @@ namespace YAMO.UnityTools.Editor
     /// </summary>
     public static class OptiTrackMotionBindingService
     {
-        private const string SpineBone = "_Spine1";
-        private const string ChestBone = "_Spine3";
-        private const string UpperChestBone = "_Spine4";
+        private const string SpineBone = "_Spine";
+        private const string ChestBone = "_Spine1";
         private const string SourceBackupMarker = "YAMO_MOCAP_SOURCE_BACKUP=";
+
+        private static readonly KeyValuePair<string, string>[] OptiTrackHumanBoneSuffixes =
+        {
+            new KeyValuePair<string, string>("Hips", "_Hips"),
+            new KeyValuePair<string, string>("LeftUpperLeg", "_LeftUpLeg"),
+            new KeyValuePair<string, string>("RightUpperLeg", "_RightUpLeg"),
+            new KeyValuePair<string, string>("LeftLowerLeg", "_LeftLeg"),
+            new KeyValuePair<string, string>("RightLowerLeg", "_RightLeg"),
+            new KeyValuePair<string, string>("LeftFoot", "_LeftFoot"),
+            new KeyValuePair<string, string>("RightFoot", "_RightFoot"),
+            new KeyValuePair<string, string>("Spine", SpineBone),
+            new KeyValuePair<string, string>("Chest", ChestBone),
+            new KeyValuePair<string, string>("Neck", "_Neck"),
+            new KeyValuePair<string, string>("Head", "_Head"),
+            new KeyValuePair<string, string>("LeftShoulder", "_LeftShoulder"),
+            new KeyValuePair<string, string>("RightShoulder", "_RightShoulder"),
+            new KeyValuePair<string, string>("LeftUpperArm", "_LeftArm"),
+            new KeyValuePair<string, string>("RightUpperArm", "_RightArm"),
+            new KeyValuePair<string, string>("LeftLowerArm", "_LeftForeArm"),
+            new KeyValuePair<string, string>("RightLowerArm", "_RightForeArm"),
+            new KeyValuePair<string, string>("LeftHand", "_LeftHand"),
+            new KeyValuePair<string, string>("RightHand", "_RightHand"),
+            new KeyValuePair<string, string>("LeftToes", "_LeftToeBase"),
+            new KeyValuePair<string, string>("RightToes", "_RightToeBase"),
+            new KeyValuePair<string, string>("Left Thumb Proximal", "_LeftHandThumb1"),
+            new KeyValuePair<string, string>("Left Thumb Intermediate", "_LeftHandThumb2"),
+            new KeyValuePair<string, string>("Left Thumb Distal", "_LeftHandThumb3"),
+            new KeyValuePair<string, string>("Left Index Proximal", "_LeftHandIndex1"),
+            new KeyValuePair<string, string>("Left Index Intermediate", "_LeftHandIndex2"),
+            new KeyValuePair<string, string>("Left Index Distal", "_LeftHandIndex3"),
+            new KeyValuePair<string, string>("Left Middle Proximal", "_LeftHandMiddle1"),
+            new KeyValuePair<string, string>("Left Middle Intermediate", "_LeftHandMiddle2"),
+            new KeyValuePair<string, string>("Left Middle Distal", "_LeftHandMiddle3"),
+            new KeyValuePair<string, string>("Left Ring Proximal", "_LeftHandRing1"),
+            new KeyValuePair<string, string>("Left Ring Intermediate", "_LeftHandRing2"),
+            new KeyValuePair<string, string>("Left Ring Distal", "_LeftHandRing3"),
+            new KeyValuePair<string, string>("Left Little Proximal", "_LeftHandPinky1"),
+            new KeyValuePair<string, string>("Left Little Intermediate", "_LeftHandPinky2"),
+            new KeyValuePair<string, string>("Left Little Distal", "_LeftHandPinky3"),
+            new KeyValuePair<string, string>("Right Thumb Proximal", "_RightHandThumb1"),
+            new KeyValuePair<string, string>("Right Thumb Intermediate", "_RightHandThumb2"),
+            new KeyValuePair<string, string>("Right Thumb Distal", "_RightHandThumb3"),
+            new KeyValuePair<string, string>("Right Index Proximal", "_RightHandIndex1"),
+            new KeyValuePair<string, string>("Right Index Intermediate", "_RightHandIndex2"),
+            new KeyValuePair<string, string>("Right Index Distal", "_RightHandIndex3"),
+            new KeyValuePair<string, string>("Right Middle Proximal", "_RightHandMiddle1"),
+            new KeyValuePair<string, string>("Right Middle Intermediate", "_RightHandMiddle2"),
+            new KeyValuePair<string, string>("Right Middle Distal", "_RightHandMiddle3"),
+            new KeyValuePair<string, string>("Right Ring Proximal", "_RightHandRing1"),
+            new KeyValuePair<string, string>("Right Ring Intermediate", "_RightHandRing2"),
+            new KeyValuePair<string, string>("Right Ring Distal", "_RightHandRing3"),
+            new KeyValuePair<string, string>("Right Little Proximal", "_RightHandPinky1"),
+            new KeyValuePair<string, string>("Right Little Intermediate", "_RightHandPinky2"),
+            new KeyValuePair<string, string>("Right Little Distal", "_RightHandPinky3")
+        };
 
         private static MethodInfo setupHumanSkeleton;
         private static bool setupHumanSkeletonResolved;
@@ -462,8 +516,10 @@ namespace YAMO.UnityTools.Editor
                 return false;
             }
 
-            importer.animationType = ModelImporterAnimationType.Human;
-            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            // A copied motion FBX can inherit an invalid Humanoid description.
+            // Import it as Generic first so the complete transform hierarchy is
+            // available before constructing the new avatar mapping.
+            importer.animationType = ModelImporterAnimationType.Generic;
             importer.importAnimation = false;
             importer.SaveAndReimport();
 
@@ -474,9 +530,15 @@ namespace YAMO.UnityTools.Editor
                 return false;
             }
 
-            if (!TryCaptureHumanoid(model, out var human, out var skeleton, out var translationDof))
+            if (!TryBuildOptiTrackHumanoid(
+                    model,
+                    out var human,
+                    out var skeleton,
+                    out var translationDof,
+                    out var mappingError) &&
+                !TryCaptureHumanoid(model, out human, out skeleton, out translationDof))
             {
-                note = $"{tPosePath}: 휴머노이드 매핑 캡처 실패 (AvatarSetupTool 접근 불가)";
+                note = $"{tPosePath}: 휴머노이드 매핑 캡처 실패 ({mappingError}; AvatarSetupTool 결과 없음)";
                 return false;
             }
 
@@ -503,7 +565,8 @@ namespace YAMO.UnityTools.Editor
             {
                 if (humanBone.humanName == "LeftEye" ||
                     humanBone.humanName == "RightEye" ||
-                    humanBone.humanName == "Jaw")
+                    humanBone.humanName == "Jaw" ||
+                    humanBone.humanName == "UpperChest")
                     continue;
 
                 var remappedBone = humanBone;
@@ -511,8 +574,6 @@ namespace YAMO.UnityTools.Editor
                     remappedBone.boneName = prefix + SpineBone;
                 else if (humanBone.humanName == "Chest")
                     remappedBone.boneName = prefix + ChestBone;
-                else if (humanBone.humanName == "UpperChest")
-                    remappedBone.boneName = prefix + UpperChestBone;
                 remapped.Add(remappedBone);
             }
 
@@ -520,6 +581,9 @@ namespace YAMO.UnityTools.Editor
             description.human = remapped.ToArray();
             description.skeleton = skeleton;
             description.hasTranslationDoF = translationDof;
+            importer.animationType = ModelImporterAnimationType.Human;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.importAnimation = false;
             importer.humanDescription = description;
             importer.SaveAndReimport();
 
@@ -531,6 +595,90 @@ namespace YAMO.UnityTools.Editor
             }
 
             return true;
+        }
+
+        private static bool TryBuildOptiTrackHumanoid(
+            GameObject model,
+            out HumanBone[] human,
+            out SkeletonBone[] skeleton,
+            out bool hasTranslationDof,
+            out string error)
+        {
+            human = null;
+            skeleton = null;
+            hasTranslationDof = false;
+            error = null;
+            if (model == null)
+            {
+                error = "모델 없음";
+                return false;
+            }
+
+            var transforms = model.GetComponentsInChildren<Transform>(true);
+            var hipsCandidates = transforms
+                .Where(transform => transform.name.EndsWith("_Hips", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (hipsCandidates.Length != 1)
+            {
+                error = $"_Hips 본 후보 {hipsCandidates.Length}개";
+                return false;
+            }
+
+            var hipsName = hipsCandidates[0].name;
+            var prefix = hipsName.Substring(0, hipsName.Length - "_Hips".Length);
+            var transformsByName = new Dictionary<string, Transform>(StringComparer.OrdinalIgnoreCase);
+            foreach (var transform in transforms)
+            {
+                if (!transformsByName.ContainsKey(transform.name))
+                    transformsByName.Add(transform.name, transform);
+            }
+
+            var mapped = new List<HumanBone>(OptiTrackHumanBoneSuffixes.Length);
+            var missingRequired = new List<string>();
+            foreach (var pair in OptiTrackHumanBoneSuffixes)
+            {
+                var boneName = prefix + pair.Value;
+                if (!transformsByName.TryGetValue(boneName, out var transform))
+                {
+                    if (IsRequiredHumanBone(pair.Key))
+                        missingRequired.Add($"{pair.Key} ({boneName})");
+                    continue;
+                }
+
+                mapped.Add(new HumanBone
+                {
+                    humanName = pair.Key,
+                    boneName = transform.name,
+                    limit = new HumanLimit { useDefaultValues = true }
+                });
+            }
+
+            if (missingRequired.Count > 0)
+            {
+                error = "필수 본 누락: " + string.Join(", ", missingRequired);
+                return false;
+            }
+
+            human = mapped.ToArray();
+            skeleton = transforms.Select(transform => new SkeletonBone
+            {
+                name = transform.name,
+                position = transform.localPosition,
+                rotation = transform.localRotation,
+                scale = transform.localScale
+            }).ToArray();
+            return human.Length > 0 && skeleton.Length > 0;
+        }
+
+        private static bool IsRequiredHumanBone(string humanName)
+        {
+            var boneNames = HumanTrait.BoneName;
+            for (var index = 0; index < boneNames.Length; index++)
+            {
+                if (boneNames[index] == humanName)
+                    return HumanTrait.RequiredBone(index);
+            }
+            return false;
         }
 
         private static bool TryCaptureHumanoid(
