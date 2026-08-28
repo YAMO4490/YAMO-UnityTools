@@ -9,7 +9,7 @@
 | 항목 | 내용 |
 |---|---|
 | 이름 | `com.yamo.unitytools` |
-| 버전 | 0.3.0 (Runtime asmdef 도입, Bake & Prefab Pipeline, Master Hub 추가) |
+| 버전 | 0.8.0 (Runtime asmdef 도입, Bake & Prefab Pipeline, Master Hub 추가) |
 | 대상 | Unity 2021.3 이상. Runtime 부분은 빌드에 포함, Editor 부분은 에디터 전용 |
 | 어셈블리 | 4개 — Runtime / Editor (코어) / Physics.Editor / Biped.Editor |
 | 메뉴 루트 | `Tools/YAMO/...` |
@@ -22,6 +22,7 @@ Packages/com.yamo.unitytools/
 ├── package.json                                    ← 패키지 메타
 ├── HANDBOOK.md                                     ← 이 문서
 ├── YAMO.UnityTools.Editor.asmdef                   ← 코어 Editor asmdef (Runtime 참조)
+├── Tests/Editor/BlendShapeCurveRemapperTests.cs  <- EditMode tests
 ├── Runtime/
 │   ├── YAMO.UnityTools.Runtime.asmdef              ← 런타임 asmdef (제약 없음)
 │   ├── BlendShapeLink/
@@ -34,6 +35,10 @@ Packages/com.yamo.unitytools/
     ├── Animation/
     │   ├── FacialAnimationBaker.cs                 ← Tools/YAMO/Animation/Facial Animation Baker
     │   ├── ForearmHingeBaker.cs                    ← Tools/YAMO/Animation/Forearm Hinge Baker
+    │   ├── BlendShapeCurveRemapper/
+    │   │   ├── BlendShapeCurveRemapper.cs            <- exact binding discovery and remap core
+    │   │   ├── BlendShapeCurveRemapperWindow.cs      <- Tools/YAMO/Animation/BlendShape Curve Remapper
+    │   │   ├── README.md
     │   └── AnimBaker/
     │       ├── AnimClipCubicFitter.cs              ← Cubic Hermite curve fitter
     │       ├── AnimClipKeyReducer.cs               ← RDP/Cubic/Auto fit + 채널별 tolerance
@@ -190,6 +195,12 @@ Packages/com.yamo.unitytools/
 - 알고리즘: 매 프레임 샘플링 → Forearm 힌지각 해석적 풀이 (Atan2) → UpperArm 최소 보정 → Hand 월드 회전 복원.
 - 외부 의존성 없음.
 - **수정 포인트**: `armTriplets` (다리 등 추가) / `axisVec` 결정부 / theta 풀이 임계값.
+
+#### `Animation/BlendShapeCurveRemapper/` — `Tools/YAMO/Animation/BlendShape Curve Remapper`
+- Reads `SkinnedMeshRenderer` `blendShape.*` bindings from an assigned AnimationClip, grouped by exact Mesh binding path.
+- Select one Mesh track first, then one or more blend-shape properties. The exact `(path, propertyName)` pair prevents same-named properties on other Meshes from changing.
+- Default mapping: `<= 10 -> 0`, `10..85 -> 0..20`, `>= 85 -> 100`; every threshold and output is configurable.
+- Preserves key times, forces processed keys to unweighted Linear tangents, and supports copy output or Undo-enabled native `.anim` overwrite.
 
 #### `Animation/AnimBaker/` — `Tools/YAMO/Animation/Anim Clip Reducer`
 머슬 클립 압축 (4 파일):
@@ -434,6 +445,10 @@ namespace YAMO.UnityTools.Editor
 | Hub 단축키 충돌 | `Edit ▸ Shortcuts` → "YAMO/Open Tool Hub" 검색 → 다른 키로 변경 |
 
 ## 9. 변경 이력 요약
+
+### 0.8.0
+- Added BlendShape Curve Remapper with Mesh-path/property selection, configurable value mapping, Linear tangents, and EditMode coverage.
+- Updated the Miltina Biped template FBX and its Humanoid avatar mapping/import settings.
 
 ### 0.5.7
 - BlendShapeLookAt: `headForwardLocal` 기본값 `(0,1,0)`, `headUpLocal` 기본값 `(-1,0,0)` 으로 변경
