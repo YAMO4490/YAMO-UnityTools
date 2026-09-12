@@ -21,6 +21,32 @@ namespace YAMO.UnityTools.Editor
         Disambiguate
     }
 
+    /// <summary>Skeleton naming convention of a motion FBX.</summary>
+    public enum MocapSourceFormat
+    {
+        /// <summary>
+        /// OptiTrack Motive export: every bone carries the actor prefix
+        /// ("001_Hips", "001_Spine1"…) and the take name identifies the motion.
+        /// </summary>
+        OptiTrack,
+
+        /// <summary>
+        /// MMRP (Mingle Motion Replayer) export: bones already use the Unity
+        /// humanoid standard names ("Hips", "LeftUpperArm", "LeftHandIndex1"…)
+        /// without any prefix, the take is always "Take 001", and the file
+        /// name identifies the motion.
+        /// </summary>
+        MMRP
+    }
+
+    public static class MocapSourceFormatExtensions
+    {
+        public static string GetLabel(this MocapSourceFormat format)
+        {
+            return format == MocapSourceFormat.MMRP ? "MMRP" : "OptiTrack";
+        }
+    }
+
     public sealed class OptiTrackMotionBindingResult
     {
         public bool Succeeded { get; internal set; }
@@ -33,8 +59,8 @@ namespace YAMO.UnityTools.Editor
     }
 
     /// <summary>
-    /// Reusable OptiTrack FBX binding pipeline used by both the legacy setup window
-    /// and higher-level mocap batch workflows.
+    /// Reusable motion FBX binding pipeline (OptiTrack and MMRP skeletons) used by
+    /// the mocap window's binding-only tool and the batch pipeline workflows.
     /// </summary>
     public static class OptiTrackMotionBindingService
     {
@@ -96,6 +122,12 @@ namespace YAMO.UnityTools.Editor
             new KeyValuePair<string, string>("Right Little Intermediate", "_RightHandPinky2"),
             new KeyValuePair<string, string>("Right Little Distal", "_RightHandPinky3")
         };
+
+        /// <summary>Humanoid slots the Biped pipeline never maps, in either format.</summary>
+        private static readonly string[] ExcludedHumanBones = { "LeftEye", "RightEye", "Jaw", "UpperChest" };
+
+        /// <summary>Human name → acceptable bone names for Unity-standard skeletons (MMRP).</summary>
+        private static readonly KeyValuePair<string, string[]>[] StandardHumanBoneNames = BuildStandardHumanBoneNames();
 
         private static MethodInfo setupHumanSkeleton;
         private static bool setupHumanSkeletonResolved;
@@ -166,10 +198,15 @@ namespace YAMO.UnityTools.Editor
         /// sources sharing one take name (e.g. per-actor OptiTrack exports) do not
         /// fight over the same target file.
         /// </param>
+        /// <param name="format">
+        /// Skeleton convention of the source. A source whose skeleton clearly belongs
+        /// to the other format is refused before anything is renamed or copied.
+        /// </param>
         public static OptiTrackMotionBindingResult Process(
             string sourcePath,
             ExistingMotionAssetPolicy existingAssetPolicy = ExistingMotionAssetPolicy.Fail,
-            string desiredAnimationName = null)
+            string desiredAnimationName = null,
+            MocapSourceFormat format = MocapSourceFormat.OptiTrack)
         {
             var result = new OptiTrackMotionBindingResult { SourcePath = sourcePath };
             var importer = AssetImporter.GetAtPath(sourcePath) as ModelImporter;
@@ -181,9 +218,13 @@ namespace YAMO.UnityTools.Editor
             if (IsTPoseAsset(sourcePath))
                 return Fail(result, $"{sourcePath}: _T(T 포즈) 파일은 바인딩 대상이 아닙니다. 목록에서 제외하세요.");
 
+            var formatError = ValidateSourceFormat(sourcePath, format);
+            if (formatError != null)
+                return Fail(result, formatError);
+
             var animationName = SanitizeFileName(
                 string.IsNullOrWhiteSpace(desiredAnimationName)
-                    ? ResolveAnimationName(importer)
+                    ? ResolveAnimationName(importer, sourcePath, format)
                     : desiredAnimationName.Trim());
             if (string.IsNullOrEmpty(animationName))
                 return Fail(result, $"{sourcePath}: 애니메이션 이름을 찾을 수 없음");
@@ -236,7 +277,7 @@ namespace YAMO.UnityTools.Editor
             if (!AssetDatabase.CopyAsset(sourcePath, tPosePath))
                 return Fail(result, $"{sourcePath}: _T 복사 실패");
 
-            if (!BuildTPoseAvatar(tPosePath, out var tPoseAvatar, out var note))
+            if (!BuildTPoseAvatar(tPosePath, format, out var tPoseAvatar, out var note))
                 return Fail(result, note);
 
             importer.animationType = ModelImporterAnimationType.Human;
@@ -251,14 +292,7 @@ namespace YAMO.UnityTools.Editor
                     clips[0].name = animationName;
 
                 foreach (var clip in clips)
-                {
-                    clip.lockRootRotation = true;
-                    clip.keepOriginalOrientation = true;
-                    clip.lockRootHeightY = true;
-                    clip.keepOriginalPositionY = true;
-                    clip.lockRootPositionXZ = true;
-                    clip.keepOriginalPositionXZ = true;
-                }
+                    FbxAnimationSetupService.ApplyRootBakeDefaults(clip);
 
                 importer.clipAnimations = clips;
             }
@@ -302,6 +336,18 @@ namespace YAMO.UnityTools.Editor
             IEnumerable<string> sourcePaths,
             out List<string> notes)
         {
+            return PlanAnimationNames(sourcePaths, MocapSourceFormat.OptiTrack, out notes);
+        }
+
+        /// <param name="format">
+        /// Decides where the base name comes from: the FBX take for OptiTrack, the
+        /// file name for MMRP (whose take is always "Take 001").
+        /// </param>
+        public static Dictionary<string, string> PlanAnimationNames(
+            IEnumerable<string> sourcePaths,
+            MocapSourceFormat format,
+            out List<string> notes)
+        {
             notes = new List<string>();
             var plan = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (sourcePaths == null)
@@ -319,7 +365,7 @@ namespace YAMO.UnityTools.Editor
                 if (!(AssetImporter.GetAtPath(sourcePath) is ModelImporter importer))
                     continue;
 
-                var takeName = SanitizeFileName(ResolveAnimationName(importer));
+                var takeName = SanitizeFileName(ResolveAnimationName(importer, sourcePath, format));
                 if (string.IsNullOrEmpty(takeName))
                     continue;
 
@@ -486,11 +532,73 @@ namespace YAMO.UnityTools.Editor
         /// <summary>True for the "_T" T-pose copies this pipeline generates.</summary>
         public static bool IsTPoseAsset(string assetPath)
         {
+            return FileNameEndsWith(assetPath, "_T");
+        }
+
+        /// <summary>True for the "_Backup" source copies this pipeline generates.</summary>
+        public static bool IsBackupAsset(string assetPath)
+        {
+            return FileNameEndsWith(assetPath, "_Backup");
+        }
+
+        /// <summary>
+        /// True for any file this pipeline produced beside a source ("_T", "_Backup").
+        /// Folder scans skip these so a re-run never binds its own leftovers.
+        /// </summary>
+        public static bool IsGeneratedAsset(string assetPath)
+        {
+            return IsTPoseAsset(assetPath) || IsBackupAsset(assetPath);
+        }
+
+        private static bool FileNameEndsWith(string assetPath, string suffix)
+        {
             if (string.IsNullOrEmpty(assetPath))
                 return false;
             var fileName = Path.GetFileNameWithoutExtension(assetPath);
             return !string.IsNullOrEmpty(fileName)
-                && fileName.EndsWith("_T", StringComparison.OrdinalIgnoreCase);
+                && fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Guesses the skeleton convention of a model asset from its bone names.
+        /// Returns null when the asset cannot be loaded or matches neither format.
+        /// </summary>
+        public static MocapSourceFormat? DetectSourceFormat(string assetPath)
+        {
+            if (string.IsNullOrEmpty(assetPath) || !(AssetImporter.GetAtPath(assetPath) is ModelImporter))
+                return null;
+            var model = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+            return model == null ? null : DetectSourceFormat(model.transform);
+        }
+
+        /// <summary>
+        /// OptiTrack when any bone ends with "_Hips", MMRP when a bone is named
+        /// exactly "Hips", otherwise null.
+        /// </summary>
+        public static MocapSourceFormat? DetectSourceFormat(Transform root)
+        {
+            if (root == null)
+                return null;
+            var transforms = root.GetComponentsInChildren<Transform>(true);
+            if (transforms.Any(transform => transform.name.EndsWith("_Hips", StringComparison.OrdinalIgnoreCase)))
+                return MocapSourceFormat.OptiTrack;
+            if (transforms.Any(transform => string.Equals(transform.name, "Hips", StringComparison.OrdinalIgnoreCase)))
+                return MocapSourceFormat.MMRP;
+            return null;
+        }
+
+        /// <summary>
+        /// Error text when the source's skeleton clearly belongs to the other format,
+        /// otherwise null. Callers check this before creating any backup or copy so a
+        /// wrong-tab mistake leaves no leftovers behind.
+        /// </summary>
+        public static string ValidateSourceFormat(string sourcePath, MocapSourceFormat format)
+        {
+            var detected = DetectSourceFormat(sourcePath);
+            if (!detected.HasValue || detected.Value == format)
+                return null;
+            return $"{sourcePath}: {detected.Value.GetLabel()} 형식 스켈레톤입니다. " +
+                   $"{format.GetLabel()} 탭이 아니라 {detected.Value.GetLabel()} 탭에서 처리하세요.";
         }
 
         private static string DirectoryOf(string assetPath)
@@ -505,7 +613,11 @@ namespace YAMO.UnityTools.Editor
             result.Note = string.IsNullOrEmpty(result.Note) ? note : result.Note + "\n" + note;
         }
 
-        private static bool BuildTPoseAvatar(string tPosePath, out Avatar avatar, out string note)
+        private static bool BuildTPoseAvatar(
+            string tPosePath,
+            MocapSourceFormat format,
+            out Avatar avatar,
+            out string note)
         {
             avatar = null;
             note = null;
@@ -530,55 +642,46 @@ namespace YAMO.UnityTools.Editor
                 return false;
             }
 
-            if (!TryBuildOptiTrackHumanoid(
-                    model,
-                    out var human,
-                    out var skeleton,
-                    out var translationDof,
-                    out var mappingError) &&
-                !TryCaptureHumanoid(model, out human, out skeleton, out translationDof))
-            {
-                note = $"{tPosePath}: 휴머노이드 매핑 캡처 실패 ({mappingError}; AvatarSetupTool 결과 없음)";
-                return false;
-            }
-
+            HumanBone[] human;
+            SkeletonBone[] skeleton;
+            var translationDof = false;
             string prefix = null;
-            foreach (var humanBone in human)
+            if (format == MocapSourceFormat.MMRP)
             {
-                if (humanBone.humanName == "Hips" &&
-                    !string.IsNullOrEmpty(humanBone.boneName) &&
-                    humanBone.boneName.EndsWith("_Hips", StringComparison.Ordinal))
+                // MMRP already uses the Unity humanoid names, so the exact-name table
+                // is authoritative; AvatarSetupTool only backs it up.
+                if (!TryBuildStandardHumanoid(model, out human, out skeleton, out var mappingError) &&
+                    !TryCaptureHumanoid(model, out human, out skeleton, out translationDof))
                 {
-                    prefix = humanBone.boneName.Substring(0, humanBone.boneName.Length - "_Hips".Length);
-                    break;
+                    note = $"{tPosePath}: 휴머노이드 매핑 캡처 실패 ({mappingError}; AvatarSetupTool 결과 없음)";
+                    return false;
+                }
+            }
+            else
+            {
+                if (!TryBuildOptiTrackHumanoid(
+                        model,
+                        out human,
+                        out skeleton,
+                        out translationDof,
+                        out var mappingError) &&
+                    !TryCaptureHumanoid(model, out human, out skeleton, out translationDof))
+                {
+                    note = $"{tPosePath}: 휴머노이드 매핑 캡처 실패 ({mappingError}; AvatarSetupTool 결과 없음)";
+                    return false;
+                }
+
+                prefix = FindOptiTrackPrefix(human);
+                if (string.IsNullOrEmpty(prefix))
+                {
+                    note = $"{tPosePath}: Hips 본에서 접두사 탐지 실패 " +
+                           "(OptiTrack 형식은 '001_Hips'처럼 접두사가 필요합니다. MMRP 파일이면 MMRP 탭을 사용하세요.)";
+                    return false;
                 }
             }
 
-            if (string.IsNullOrEmpty(prefix))
-            {
-                note = $"{tPosePath}: Hips 본에서 접두사 탐지 실패";
-                return false;
-            }
-
-            var remapped = new List<HumanBone>(human.Length);
-            foreach (var humanBone in human)
-            {
-                if (humanBone.humanName == "LeftEye" ||
-                    humanBone.humanName == "RightEye" ||
-                    humanBone.humanName == "Jaw" ||
-                    humanBone.humanName == "UpperChest")
-                    continue;
-
-                var remappedBone = humanBone;
-                if (humanBone.humanName == "Spine")
-                    remappedBone.boneName = prefix + SpineBone;
-                else if (humanBone.humanName == "Chest")
-                    remappedBone.boneName = prefix + ChestBone;
-                remapped.Add(remappedBone);
-            }
-
             var description = importer.humanDescription;
-            description.human = remapped.ToArray();
+            description.human = RemapHumanBones(human, format, prefix);
             description.skeleton = skeleton;
             description.hasTranslationDoF = translationDof;
             importer.animationType = ModelImporterAnimationType.Human;
@@ -595,6 +698,182 @@ namespace YAMO.UnityTools.Editor
             }
 
             return true;
+        }
+
+        private static string FindOptiTrackPrefix(IEnumerable<HumanBone> human)
+        {
+            foreach (var humanBone in human)
+            {
+                if (humanBone.humanName == "Hips" &&
+                    !string.IsNullOrEmpty(humanBone.boneName) &&
+                    humanBone.boneName.EndsWith("_Hips", StringComparison.Ordinal))
+                    return humanBone.boneName.Substring(0, humanBone.boneName.Length - "_Hips".Length);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Drops the mappings the Biped pipeline never wants (eyes, jaw, upper chest)
+        /// and, for OptiTrack, forces the spine chain onto the prefixed Spine/Spine1
+        /// bones because the automatic mapping lands one bone too high.
+        /// </summary>
+        public static HumanBone[] RemapHumanBones(
+            IEnumerable<HumanBone> human,
+            MocapSourceFormat format,
+            string optiTrackPrefix)
+        {
+            var remapped = new List<HumanBone>();
+            foreach (var humanBone in human)
+            {
+                if (Array.IndexOf(ExcludedHumanBones, humanBone.humanName) >= 0)
+                    continue;
+
+                // AvatarSetupTool happily latches humanoid slots onto MMRP helper nodes
+                // (e.g. RightEye → MMRP_Deform_Palette_106); never keep those.
+                if (format == MocapSourceFormat.MMRP && IsMmrpHelperBone(humanBone.boneName))
+                    continue;
+
+                var remappedBone = humanBone;
+                if (format == MocapSourceFormat.OptiTrack && !string.IsNullOrEmpty(optiTrackPrefix))
+                {
+                    if (humanBone.humanName == "Spine")
+                        remappedBone.boneName = optiTrackPrefix + SpineBone;
+                    else if (humanBone.humanName == "Chest")
+                        remappedBone.boneName = optiTrackPrefix + ChestBone;
+                }
+                remapped.Add(remappedBone);
+            }
+            return remapped.ToArray();
+        }
+
+        private static bool IsMmrpHelperBone(string boneName)
+        {
+            return !string.IsNullOrEmpty(boneName) &&
+                   boneName.StartsWith("MMRP_", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static KeyValuePair<string, string[]>[] BuildStandardHumanBoneNames()
+        {
+            var table = new List<KeyValuePair<string, string[]>>();
+            foreach (var name in new[]
+                     {
+                         "Hips", "Spine", "Chest", "Neck", "Head",
+                         "LeftShoulder", "LeftUpperArm", "LeftLowerArm", "LeftHand",
+                         "RightShoulder", "RightUpperArm", "RightLowerArm", "RightHand",
+                         "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "LeftToes",
+                         "RightUpperLeg", "RightLowerLeg", "RightFoot", "RightToes"
+                     })
+            {
+                table.Add(new KeyValuePair<string, string[]>(name, new[] { name }));
+            }
+
+            // Fingers follow the Mecanim "LeftHandIndex1" convention. MMRP names the
+            // little finger "Little"; other exporters use "Pinky", accept both.
+            var phalanges = new[] { "Proximal", "Intermediate", "Distal" };
+            foreach (var side in new[] { "Left", "Right" })
+            {
+                foreach (var finger in new[] { "Thumb", "Index", "Middle", "Ring", "Little" })
+                {
+                    for (var index = 0; index < phalanges.Length; index++)
+                    {
+                        var candidates = finger == "Little"
+                            ? new[] { $"{side}HandLittle{index + 1}", $"{side}HandPinky{index + 1}" }
+                            : new[] { $"{side}Hand{finger}{index + 1}" };
+                        table.Add(new KeyValuePair<string, string[]>(
+                            $"{side} {finger} {phalanges[index]}",
+                            candidates));
+                    }
+                }
+            }
+
+            return table.ToArray();
+        }
+
+        /// <summary>
+        /// Exact-name humanoid mapping for skeletons that already use the Unity
+        /// standard bone names (MMRP exports). Eyes, jaw and upper chest are never
+        /// mapped, matching <see cref="RemapHumanBones"/>.
+        /// </summary>
+        private static bool TryBuildStandardHumanoid(
+            GameObject model,
+            out HumanBone[] human,
+            out SkeletonBone[] skeleton,
+            out string error)
+        {
+            human = null;
+            skeleton = null;
+            error = null;
+            if (model == null)
+            {
+                error = "모델 없음";
+                return false;
+            }
+
+            var transforms = model.GetComponentsInChildren<Transform>(true);
+            var transformsByName = IndexByName(transforms);
+            if (!transformsByName.ContainsKey("Hips"))
+            {
+                error = "Hips 본 없음";
+                return false;
+            }
+
+            var mapped = new List<HumanBone>(StandardHumanBoneNames.Length);
+            var missingRequired = new List<string>();
+            foreach (var pair in StandardHumanBoneNames)
+            {
+                Transform transform = null;
+                foreach (var candidate in pair.Value)
+                {
+                    if (transformsByName.TryGetValue(candidate, out transform))
+                        break;
+                }
+
+                if (transform == null)
+                {
+                    if (IsRequiredHumanBone(pair.Key))
+                        missingRequired.Add($"{pair.Key} ({pair.Value[0]})");
+                    continue;
+                }
+
+                mapped.Add(new HumanBone
+                {
+                    humanName = pair.Key,
+                    boneName = transform.name,
+                    limit = new HumanLimit { useDefaultValues = true }
+                });
+            }
+
+            if (missingRequired.Count > 0)
+            {
+                error = "필수 본 누락: " + string.Join(", ", missingRequired);
+                return false;
+            }
+
+            human = mapped.ToArray();
+            skeleton = BuildSkeleton(transforms);
+            return human.Length > 0 && skeleton.Length > 0;
+        }
+
+        private static Dictionary<string, Transform> IndexByName(IEnumerable<Transform> transforms)
+        {
+            var transformsByName = new Dictionary<string, Transform>(StringComparer.OrdinalIgnoreCase);
+            foreach (var transform in transforms)
+            {
+                if (!transformsByName.ContainsKey(transform.name))
+                    transformsByName.Add(transform.name, transform);
+            }
+            return transformsByName;
+        }
+
+        private static SkeletonBone[] BuildSkeleton(IEnumerable<Transform> transforms)
+        {
+            return transforms.Select(transform => new SkeletonBone
+            {
+                name = transform.name,
+                position = transform.localPosition,
+                rotation = transform.localRotation,
+                scale = transform.localScale
+            }).ToArray();
         }
 
         private static bool TryBuildOptiTrackHumanoid(
@@ -626,12 +905,7 @@ namespace YAMO.UnityTools.Editor
 
             var hipsName = hipsCandidates[0].name;
             var prefix = hipsName.Substring(0, hipsName.Length - "_Hips".Length);
-            var transformsByName = new Dictionary<string, Transform>(StringComparer.OrdinalIgnoreCase);
-            foreach (var transform in transforms)
-            {
-                if (!transformsByName.ContainsKey(transform.name))
-                    transformsByName.Add(transform.name, transform);
-            }
+            var transformsByName = IndexByName(transforms);
 
             var mapped = new List<HumanBone>(OptiTrackHumanBoneSuffixes.Length);
             var missingRequired = new List<string>();
@@ -660,13 +934,7 @@ namespace YAMO.UnityTools.Editor
             }
 
             human = mapped.ToArray();
-            skeleton = transforms.Select(transform => new SkeletonBone
-            {
-                name = transform.name,
-                position = transform.localPosition,
-                rotation = transform.localRotation,
-                scale = transform.localScale
-            }).ToArray();
+            skeleton = BuildSkeleton(transforms);
             return human.Length > 0 && skeleton.Length > 0;
         }
 
@@ -732,8 +1000,16 @@ namespace YAMO.UnityTools.Editor
             return true;
         }
 
-        private static string ResolveAnimationName(ModelImporter importer)
+        private static string ResolveAnimationName(
+            ModelImporter importer,
+            string sourcePath,
+            MocapSourceFormat format)
         {
+            // MMRP exports always carry the generic "Take 001" take, so the file
+            // name is the only meaningful identity of the motion.
+            if (format == MocapSourceFormat.MMRP)
+                return Path.GetFileNameWithoutExtension(sourcePath)?.Trim();
+
             string rawName = null;
             var clips = importer.clipAnimations;
             if (clips != null && clips.Length > 0)

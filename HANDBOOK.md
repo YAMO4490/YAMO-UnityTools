@@ -35,6 +35,11 @@ Packages/com.yamo.unitytools/
     ├── Animation/
     │   ├── FacialAnimationBaker.cs                 ← Tools/YAMO/Animation/Facial Animation Baker
     │   ├── ForearmHingeBaker.cs                    ← Tools/YAMO/Animation/Forearm Hinge Baker
+    │   ├── MocapToBipedFbxPipelineWindow.cs        ← Tools/YAMO/Animation/Mocap to Biped FBX Pipeline (탭: OptiTrack / MMRP / FBX 애니메이션 설정)
+    │   ├── MocapToBipedFbxPipeline.cs              ← Edit Mode 동기 파이프라인 (바인딩 → Hinge → Max FBX)
+    │   ├── MocapToBipedFbxPlayModeRunner.cs        ← Play Mode 배치 러너
+    │   ├── OptiTrackMotionBindingService.cs        ← 모션 FBX 바인딩 (OptiTrack 접두사 / MMRP 표준 본 이름)
+    │   ├── FbxAnimationSetupService.cs             ← 클립 임포트 설정 (압축 Off · 클립명 · Root Bake)
     │   ├── BlendShapeCurveRemapper/
     │   │   ├── BlendShapeCurveRemapper.cs            <- exact binding discovery and remap core
     │   │   ├── BlendShapeCurveRemapperWindow.cs      <- Tools/YAMO/Animation/BlendShape Curve Remapper
@@ -189,6 +194,13 @@ Packages/com.yamo.unitytools/
 - 결과 FBX 의 경로 바인딩이 원본 .anim 그대로라 **어떤 캐릭터에 올려도 동일 적용**.
 - FBX Exporter 는 리플렉션으로 선택적 사용 — 없으면 에러 메시지 후 종료.
 - **수정 포인트**: keyframe stride / include dictionary / 셸 생성 로직.
+
+#### `Animation/MocapToBipedFbxPipelineWindow.cs` — `Tools/YAMO/Animation/Mocap to Biped FBX Pipeline` (단축키 `8`)
+- 상단 `GUILayout.Toolbar` 탭 3개: **OptiTrack 파이프라인 / MMRP 파이프라인 / FBX 애니메이션 설정**. 파이프라인 탭은 큐를 따로 갖고 대상 Biped·출력·옵션은 공유.
+- `MocapSourceFormat`(OptiTrack / MMRP)이 `MocapPipelineSettings.SourceFormat`으로 바인딩 서비스까지 전달됨. 큐에 넣을 때 `DetectSourceFormat`으로 다른 탭 파일을 걸러냄.
+- `OptiTrackMotionBindingService`: OptiTrack은 `{접두사}_…` 테이블 + 스파인 강제 지정, MMRP는 `StandardHumanBoneNames` 정확 일치 매핑. 두 형식 모두 Eye/Jaw/UpperChest 제거(`RemapHumanBones`), `_T`/`_Backup` 생성 규칙은 공유.
+- FBX 애니메이션 설정 탭은 예전 `FbxAnimSetupWindow`(단축키 `9`)를 통합한 것. 클립 설정 로직은 `FbxAnimationSetupService`로 분리되어 바인딩 서비스와 공유.
+- **수정 포인트**: 새 소스 형식 추가 시 `MocapSourceFormat` 값 + `DetectSourceFormat` 규칙 + `BuildTPoseAvatar` 분기 + 창 탭 라벨.
 
 #### `Animation/ForearmHingeBaker.cs` — `Tools/YAMO/Animation/Forearm Hinge Baker`
 - Humanoid 클립의 Forearm 비-힌지 회전 제거 → Biped 단축 힌지와 호환되는 Generic 클립 생성.

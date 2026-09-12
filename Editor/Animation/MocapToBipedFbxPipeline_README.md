@@ -1,9 +1,31 @@
 # Mocap to Biped FBX Pipeline
 
-`Tools/YAMO/Animation/Mocap to Biped FBX Pipeline`은 다음 작업을 순서대로 실행합니다.
+`Tools/YAMO/Animation/Mocap to Biped FBX Pipeline`(단축키 `8`)은 브라우저처럼 상단 탭으로 나뉩니다.
 
-1. FBX 입력이면 변경 전 원본을 `원본파일명_Backup.fbx`로 보존하고 OptiTrack 모션을 바인딩
-2. Anim 입력이면 백업과 OptiTrack 바인딩 없이 해당 AnimationClip을 직접 사용
+| 탭 | 용도 |
+|---|---|
+| **OptiTrack 파이프라인** | OptiTrack(Motive) FBX 큐 → 바인딩 → Forearm Hinge → 3ds Max FBX |
+| **MMRP 파이프라인** | MMRP(Mingle Motion Replayer) FBX 큐 → 같은 파이프라인 |
+| **FBX 애니메이션 설정** | 클립 임포트 설정 일괄 적용, 바인딩만 실행 (예전 `FBX 애니메이션 설정` 창이 통합됨, [FbxAnimSetup_README](FbxAnimSetup_README.md)) |
+
+두 파이프라인 탭은 **모션 큐를 따로** 가지며, 대상 Biped·출력 폴더·처리 설정은 공유합니다.
+실행 버튼은 현재 탭의 큐만 처리합니다.
+
+## 소스 형식
+
+| 형식 | 본 이름 | 출력 이름 근거 | 비고 |
+|---|---|---|---|
+| OptiTrack | `001_Hips`, `001_Spine1`… (액터 접두사) | FBX 테이크 이름 | 스파인 자동 매핑이 한 칸 밀려 `Spine/Chest`를 강제 지정 |
+| MMRP | `Hips`, `LeftUpperArm`, `LeftHandIndex1`… (Unity 표준 이름) | 파일 이름 (테이크는 항상 `Take 001`) | 바인드 포즈가 이미 T포즈, 표준 이름을 그대로 매핑 |
+
+두 형식 모두 `LeftEye / RightEye / Jaw / UpperChest` 매핑은 제거합니다. MMRP의 `MMRP_*` 헬퍼 노드는 절대 매핑하지 않습니다.
+
+큐에 넣을 때 FBX의 본 이름으로 형식을 판별해 **다른 탭의 파일은 큐에 들어가지 않고** 어느 탭을 써야 하는지 알림으로 표시합니다. 판별을 통과하지 못한 파일이 실행 단계까지 오면 `_Backup`이나 `_T`를 만들기 전에 거부됩니다.
+
+각 파이프라인 탭은 다음 작업을 순서대로 실행합니다.
+
+1. FBX 입력이면 변경 전 원본을 `원본파일명_Backup.fbx`로 보존하고 탭 형식에 맞게 모션을 바인딩
+2. Anim 입력이면 백업과 바인딩 없이 해당 AnimationClip을 직접 사용
 3. 지정한 Biped Animator에서 Forearm Hinge를 선택한 모드로 메모리상 베이크
 4. 최종 출력용 Biped 복제본의 Humanoid Avatar를 제거하고 Generic Transform 클립으로 전환
 5. 같은 Sample Rate로 Biped 전체 계층을 다시 샘플링해 FBX 생성
@@ -16,17 +38,19 @@
 
 ## 사용법
 
-1. 씬의 Humanoid Biped Animator를 지정합니다.
-2. OptiTrack FBX 또는 Anim 파일을 큐에 드래그합니다. 프로젝트 폴더를 추가하면 내부 모션을 일괄 등록할 수 있습니다.
-3. 최종 FBX 폴더를 지정합니다.
-4. `전체 파이프라인 실행`을 누릅니다.
+1. 소스 형식에 맞는 탭(OptiTrack 또는 MMRP)을 선택합니다.
+2. 씬의 Humanoid Biped Animator를 지정합니다.
+3. FBX 또는 Anim 파일을 큐에 드래그합니다. 프로젝트 폴더를 추가하면 내부 모션을 일괄 등록할 수 있습니다.
+   폴더 추가는 이 도구가 만든 `_T`, `_Backup` 파일을 항상 제외합니다.
+4. 최종 FBX 폴더를 지정합니다.
+5. `파이프라인 실행`을 누릅니다.
 
 길이를 0으로 두면 입력 클립 전체를 사용합니다. 시작 시간과 길이를 입력하면 최종 FBX만 해당 구간으로 잘립니다. Hinge 결과는 메모리에서만 사용되며 별도의 `.anim` 파일을 만들지 않습니다.
 
-## 이름 충돌 처리 (액터별 분리 파일)
+## 이름 충돌 처리 (액터별 분리 파일, OptiTrack)
 
-바인딩 단계의 결과 파일명은 파일 이름이 아니라 **FBX 내부의 클립(테이크) 이름**에서
-나옵니다. 그래서 같은 테이크를 액터별로 뽑은 파일들(`001.fbx`, `002.fbx` …)은
+OptiTrack 바인딩 단계의 결과 파일명은 파일 이름이 아니라 **FBX 내부의 클립(테이크) 이름**에서
+나옵니다. (MMRP는 파일 이름을 그대로 쓰므로 한 폴더 안에서 충돌하지 않습니다.) 그래서 같은 테이크를 액터별로 뽑은 파일들(`001.fbx`, `002.fbx` …)은
 클립 이름이 모두 같아 하나의 목표 파일명을 두고 충돌합니다.
 
 큐는 **실행 전에 전체 항목의 목표 이름을 미리 계산**하고, 겹치는 항목에만 원본

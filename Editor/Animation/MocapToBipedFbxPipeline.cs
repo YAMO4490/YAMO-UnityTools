@@ -39,6 +39,9 @@ namespace YAMO.UnityTools.Editor
     {
         public Animator TargetAnimator { get; set; }
         public string FbxOutputDirectory { get; set; }
+
+        /// <summary>Skeleton convention of every FBX in the queue (one per run/tab).</summary>
+        public MocapSourceFormat SourceFormat { get; set; } = MocapSourceFormat.OptiTrack;
         public int SampleRate { get; set; } = 60;
         public MocapHingeBakeMode HingeBakeMode { get; set; } = MocapHingeBakeMode.PlayMode;
         public bool EnableHingeCorrection { get; set; } = true;
@@ -91,6 +94,7 @@ namespace YAMO.UnityTools.Editor
             // original file name as a suffix instead of fighting over one target file.
             var bindingNames = OptiTrackMotionBindingService.PlanAnimationNames(
                 enabledItems.Select(item => AssetDatabase.GetAssetPath(item.SourceFbx)),
+                settings.SourceFormat,
                 out var bindingNameNotes);
             foreach (var note in bindingNameNotes)
                 Debug.Log($"[MocapPipeline] {note}");
@@ -161,6 +165,13 @@ namespace YAMO.UnityTools.Editor
                 if (!MocapPipelineSourceUtility.IsFbxModel(item.SourceFbx))
                     throw new InvalidOperationException($"{item.SourceFbx?.name}: 지원되는 FBX 또는 Anim 에셋이 아닙니다.");
 
+                // A wrong-format file must fail before the backup is written, so the
+                // mistake leaves no _Backup/_T leftovers beside the source.
+                var formatError = OptiTrackMotionBindingService.ValidateSourceFormat(sourcePath, settings.SourceFormat);
+                if (formatError != null)
+                    throw new InvalidOperationException(formatError);
+
+                var formatLabel = settings.SourceFormat.GetLabel();
                 result.Stage = MocapPipelineStage.BackingUpSource;
                 ThrowIfCancelled(progressCallback, $"{item.SourceFbx.name}: 원본 백업", 0.01f);
                 result.SourceBackupPath = OptiTrackMotionBindingService.EnsureSourceBackup(
@@ -169,14 +180,15 @@ namespace YAMO.UnityTools.Editor
                 result.SourceBackupCreated = backupCreated;
 
                 result.Stage = MocapPipelineStage.Binding;
-                ThrowIfCancelled(progressCallback, $"{item.SourceFbx.name}: OptiTrack 바인딩", 0.05f);
+                ThrowIfCancelled(progressCallback, $"{item.SourceFbx.name}: {formatLabel} 바인딩", 0.05f);
                 bindingNames.TryGetValue(sourcePath, out var plannedBindingName);
                 result.Binding = OptiTrackMotionBindingService.Process(
                     sourcePath,
                     settings.ExistingBindingPolicy,
-                    plannedBindingName);
+                    plannedBindingName,
+                    settings.SourceFormat);
                 if (!result.Binding.Succeeded || result.Binding.AnimationClip == null)
-                    throw new InvalidOperationException(result.Binding.Note ?? "OptiTrack 바인딩에 실패했습니다.");
+                    throw new InvalidOperationException(result.Binding.Note ?? $"{formatLabel} 바인딩에 실패했습니다.");
 
                 sourceClip = result.Binding.AnimationClip;
                 fallbackOutputName = result.Binding.AnimationName;

@@ -195,6 +195,7 @@ namespace YAMO.UnityTools.Editor
             // leaves a dangling clip in the temp controller. Plan the names first.
             var bindingNames = OptiTrackMotionBindingService.PlanAnimationNames(
                 enabledItems.Select(item => AssetDatabase.GetAssetPath(item.SourceFbx)),
+                settings.SourceFormat,
                 out var bindingNameNotes);
             foreach (var note in bindingNameNotes)
                 Debug.Log($"[MocapPipeline] {note}");
@@ -223,14 +224,23 @@ namespace YAMO.UnityTools.Editor
                             throw new InvalidOperationException(
                                 $"{item.SourceFbx?.name}: 지원되는 FBX 또는 Anim 에셋이 아닙니다.");
 
+                        // Fail on a wrong-format file before the backup is written.
+                        var formatError = OptiTrackMotionBindingService.ValidateSourceFormat(
+                            sourcePath,
+                            settings.SourceFormat);
+                        if (formatError != null)
+                            throw new InvalidOperationException(formatError);
+
                         OptiTrackMotionBindingService.EnsureSourceBackup(sourcePath, out _);
                         bindingNames.TryGetValue(sourcePath, out var plannedBindingName);
                         var binding = OptiTrackMotionBindingService.Process(
                             sourcePath,
                             settings.ExistingBindingPolicy,
-                            plannedBindingName);
+                            plannedBindingName,
+                            settings.SourceFormat);
                         if (!binding.Succeeded || binding.AnimationClip == null)
-                            throw new InvalidOperationException(binding.Note ?? "OptiTrack 바인딩에 실패했습니다.");
+                            throw new InvalidOperationException(
+                                binding.Note ?? $"{settings.SourceFormat.GetLabel()} 바인딩에 실패했습니다.");
 
                         sourceClip = binding.AnimationClip;
                         fallbackOutputName = binding.AnimationName;
