@@ -590,5 +590,315 @@ namespace YAMO.UnityTools.Editor
             }
             return result;
         }
+
+        // ============================================================
+        // [9] MagicaCloth2 Collider Symmetry Target Fixer
+        // ============================================================
+        //
+        // Biped 변환 아바타에서는 Animator 의 휴머노이드 본이 Bip001 본이므로
+        // MagicaCloth2 의 Automatic 시메트리가 반대편 본을 찾지 못한다.
+        // 콜라이더의 조상 중 원본(Primary) 팔/다리 본을 찾아, 반대편 Primary 본을
+        // Symmetry Target 으로 지정하고 모드를 X_Symmetry 로 고정한다.
+        // MagicaCloth2 어셈블리에 의존하지 않도록 SerializedObject 로만 접근한다.
+
+        private const int MagicaSymmetryNone = 0;
+        private const int MagicaSymmetryX    = 100;
+
+        public class MagicaSymmetryEntry
+        {
+            public Component Collider;
+            public Transform PrimaryBone;    // 콜라이더가 속한 원본 본 (예: LeftHand)
+            public Transform MirrorBone;     // 새 타겟이 될 반대편 원본 본 (예: RightHand). 없으면 null
+            public Transform CurrentTarget;
+            public string CurrentModeName;
+            public bool Fixable => Collider != null && MirrorBone != null;
+        }
+
+        /// <summary>
+        /// root 하위의 MagicaCloth2 콜라이더 중, 팔(어깨 이하)/다리 Primary 본 아래에 있고
+        /// 시메트리가 켜져 있으나 타겟이 비었거나 Biped(휴머노이드 매핑) 본인 것을 찾는다.
+        /// </summary>
+        public static List<MagicaSymmetryEntry> ScanMagicaSymmetryTargets(GameObject root)
+        {
+            var result = new List<MagicaSymmetryEntry>();
+            if (root == null) return result;
+
+            var rootT = root.transform;
+
+            // Animator 에 매핑된 본(= Biped 본)은 Primary 후보와 타겟에서 제외
+            var mappedBones = new HashSet<Transform>();
+            var animator = root.GetComponentInChildren<Animator>(true);
+            if (animator != null && animator.isHuman)
+            {
+                foreach (HumanBodyBones hb in System.Enum.GetValues(typeof(HumanBodyBones)))
+                {
+                    if (hb == HumanBodyBones.LastBone) continue;
+                    var t = animator.GetBoneTransform(hb);
+                    if (t != null) mappedBones.Add(t);
+                }
+            }
+
+            var limbNames = MagicaSymmetryBuildLimbNameMap();
+
+            // 이름 → Primary 본 (매핑 본 제외, 첫 번째 우선)
+            var primaryByName = new Dictionary<string, Transform>();
+            foreach (var t in rootT.GetComponentsInChildren<Transform>(true))
+            {
+                if (!limbNames.ContainsKey(t.name)) continue;
+                if (mappedBones.Contains(t) || MagicaSymmetryIsBipedName(t.name)) continue;
+                if (!primaryByName.ContainsKey(t.name)) primaryByName[t.name] = t;
+            }
+
+            foreach (var c in rootT.GetComponentsInChildren<Component>(true))
+            {
+                if (c == null || !MagicaSymmetryIsCollider(c)) continue;
+
+                var so = new SerializedObject(c);
+                var modeProp   = so.FindProperty("symmetryMode");
+                var targetProp = so.FindProperty("symmetryTarget");
+                if (modeProp == null || targetProp == null) continue;
+                if (modeProp.intValue == MagicaSymmetryNone) continue;
+
+                // 가장 가까운 Primary 팔/다리 본 조상
+                Transform primary = null;
+                for (var cur = c.transform.parent; cur != null && cur != rootT; cur = cur.parent)
+                {
+                    if (primaryByName.TryGetValue(cur.name, out var p) && p == cur) { primary = cur; break; }
+                }
+                if (primary == null) continue;
+
+                primaryByName.TryGetValue(limbNames[primary.name], out var mirror);
+
+                var curTarget = targetProp.objectReferenceValue as Transform;
+                bool targetBroken = curTarget == null
+                                    || mappedBones.Contains(curTarget)
+                                    || MagicaSymmetryIsBipedName(curTarget.name);
+                if (!targetBroken) continue;
+
+                int enumIdx = modeProp.enumValueIndex;
+                result.Add(new MagicaSymmetryEntry
+                {
+                    Collider        = c,
+                    PrimaryBone     = primary,
+                    MirrorBone      = mirror,
+                    CurrentTarget   = curTarget,
+                    CurrentModeName = (enumIdx >= 0 && enumIdx < modeProp.enumNames.Length)
+                                        ? modeProp.enumNames[enumIdx] : modeProp.intValue.ToString(),
+                });
+            }
+            return result;
+        }
+
+        /// <summary>Fixable 항목에 X_Symmetry + 반대편 Primary 본을 적용. Undo 가능. 수정된 수 반환.</summary>
+        public static int FixMagicaSymmetryTargets(List<MagicaSymmetryEntry> entries)
+        {
+            if (entries == null) return 0;
+            int n = 0;
+            foreach (var e in entries)
+            {
+                if (e == null || !e.Fixable) continue;
+                var so = new SerializedObject(e.Collider);
+                var modeProp   = so.FindProperty("symmetryMode");
+                var targetProp = so.FindProperty("symmetryTarget");
+                if (modeProp == null || targetProp == null) continue;
+
+                modeProp.intValue = MagicaSymmetryX;
+                targetProp.objectReferenceValue = e.MirrorBone;
+                so.ApplyModifiedProperties();   // Undo + 프리팹 오버라이드 기록 포함
+                n++;
+            }
+            return n;
+        }
+
+        /// 팔(어깨 이하, 손가락 포함)/다리 휴머노이드 본 이름 → 반대편 이름
+        private static Dictionary<string, string> MagicaSymmetryBuildLimbNameMap()
+        {
+            var map = new Dictionary<string, string>();
+            foreach (var name in System.Enum.GetNames(typeof(HumanBodyBones)))
+            {
+                string mirror;
+                if (name.StartsWith("Left")) mirror = "Right" + name.Substring(4);
+                else if (name.StartsWith("Right")) mirror = "Left" + name.Substring(5);
+                else continue;
+                if (name.EndsWith("Eye")) continue;
+                map[name] = mirror;
+            }
+            return map;
+        }
+
+        private static bool MagicaSymmetryIsBipedName(string name)
+        {
+            return name.StartsWith("Bip001", System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool MagicaSymmetryIsCollider(Component c)
+        {
+            for (var t = c.GetType(); t != null; t = t.BaseType)
+                if (t.FullName == "MagicaCloth2.ColliderComponent") return true;
+            return false;
+        }
+
+        // ============================================================
+        // [10] Boneless SkinnedMeshRenderer Fixer
+        // ============================================================
+        //
+        // 블렌드셰이프만 있고 본이 없는 메시는 Unity 가 SMR 로 임포트하지만(bones/bindposes 0개,
+        // rootBone = 자기 자신), FBX/VRM 익스포터는 스킨 클러스터가 없는 스킨드 메시를 기록하지 못해
+        // 메시가 통째로 소실된다. SMR 과 같은 부모·같은 로컬 트랜스폼에 본 오브젝트를 새로 만들고
+        // 모든 버텍스를 그 본에 100% 스키닝해 정상적인 스킨드 메시로 만든다.
+
+        private const string BonelessSmrFallbackFolder = "Assets/YAMO_Generated/BonelessSmrFix";
+
+        public class BonelessSmrEntry
+        {
+            public SkinnedMeshRenderer Renderer;
+            public int BoneCount;
+            public int BindposeCount;
+        }
+
+        public static List<BonelessSmrEntry> ScanBonelessSmrsInScene()
+        {
+            return ScanBonelessSmrs(Object.FindObjectsByType<SkinnedMeshRenderer>(
+                FindObjectsInactive.Include, FindObjectsSortMode.None));
+        }
+
+        public static List<BonelessSmrEntry> ScanBonelessSmrsInChildren(GameObject root)
+        {
+            if (root == null) return new List<BonelessSmrEntry>();
+            return ScanBonelessSmrs(root.GetComponentsInChildren<SkinnedMeshRenderer>(true));
+        }
+
+        private static List<BonelessSmrEntry> ScanBonelessSmrs(IEnumerable<SkinnedMeshRenderer> smrs)
+        {
+            var results = new List<BonelessSmrEntry>();
+            foreach (var smr in smrs)
+            {
+                if (smr == null) continue;
+                var mesh = smr.sharedMesh;
+                if (mesh == null || mesh.vertexCount == 0) continue;
+
+                int boneCount     = smr.bones != null ? smr.bones.Length : 0;
+                int bindposeCount = mesh.bindposes.Length;
+                if (boneCount > 0 && bindposeCount > 0) continue;
+
+                results.Add(new BonelessSmrEntry
+                {
+                    Renderer      = smr,
+                    BoneCount     = boneCount,
+                    BindposeCount = bindposeCount,
+                });
+            }
+            return results;
+        }
+
+        /// <summary>
+        /// 각 SMR 옆(같은 부모, 같은 로컬 트랜스폼)에 본을 생성하고 100% 스키닝한 메시 사본으로 교체.
+        /// 원본 메시 에셋은 수정하지 않는다. Undo 가능(생성된 메시 에셋 파일은 남음). 수정된 수 반환.
+        /// </summary>
+        public static int FixBonelessSmrs(List<BonelessSmrEntry> entries)
+        {
+            if (entries == null || entries.Count == 0) return 0;
+
+            Undo.SetCurrentGroupName("Fix Boneless SkinnedMeshRenderer");
+            int group = Undo.GetCurrentGroup();
+
+            // 본이 SMR 과 동일한 트랜스폼이라 bindpose 가 항상 identity → 같은 원본 메시는 사본 공유 가능
+            var skinnedByMesh = new Dictionary<Mesh, Mesh>();
+            int n = 0;
+            foreach (var e in entries)
+            {
+                if (e == null || e.Renderer == null || e.Renderer.sharedMesh == null) continue;
+                var smr = e.Renderer;
+                var src = smr.sharedMesh;
+
+                if (!skinnedByMesh.TryGetValue(src, out var skinned))
+                {
+                    skinned = BonelessSmrCreateSkinnedMesh(src);
+                    if (skinned == null)
+                    {
+                        Debug.LogError($"[AssetChecker] '{smr.name}': 메시 '{src.name}' 에 스킨 정보를 쓸 수 없습니다. 모델 임포트 설정의 Read/Write 를 켠 뒤 다시 시도하세요.", smr);
+                        continue;
+                    }
+                    skinnedByMesh[src] = skinned;
+                }
+
+                var smrT = smr.transform;
+                var boneGo = new GameObject(BonelessSmrUniqueBoneName(smrT));
+                Undo.RegisterCreatedObjectUndo(boneGo, "Create Bone");
+                var bone = boneGo.transform;
+                bone.SetParent(smrT.parent, false);
+                bone.localPosition = smrT.localPosition;
+                bone.localRotation = smrT.localRotation;
+                bone.localScale    = smrT.localScale;
+                bone.SetSiblingIndex(smrT.GetSiblingIndex() + 1);
+
+                Undo.RecordObject(smr, "Fix Boneless SkinnedMeshRenderer");
+                smr.sharedMesh = skinned;
+                smr.bones      = new[] { bone };
+                smr.rootBone   = bone;      // 기존 rootBone(자기 자신)과 같은 트랜스폼이라 localBounds 유지
+                PrefabUtility.RecordPrefabInstancePropertyModifications(smr);
+                EditorUtility.SetDirty(smr);
+                n++;
+            }
+
+            Undo.CollapseUndoOperations(group);
+            return n;
+        }
+
+        private static Mesh BonelessSmrCreateSkinnedMesh(Mesh src)
+        {
+            var mesh = Object.Instantiate(src);
+            mesh.name = src.name + "_Skinned";
+
+            if (!mesh.isReadable)
+            {
+                // 에디터에서는 CPU 데이터가 남아 있으므로 사본의 읽기 플래그만 켠다
+                var so = new SerializedObject(mesh);
+                var readable = so.FindProperty("m_IsReadable");
+                if (readable != null)
+                {
+                    readable.boolValue = true;
+                    so.ApplyModifiedPropertiesWithoutUndo();
+                }
+                if (!mesh.isReadable)
+                {
+                    Object.DestroyImmediate(mesh);
+                    return null;
+                }
+            }
+
+            var weights = new BoneWeight[mesh.vertexCount];
+            for (int i = 0; i < weights.Length; i++)
+                weights[i] = new BoneWeight { boneIndex0 = 0, weight0 = 1f };
+            mesh.boneWeights = weights;
+            mesh.bindposes   = new[] { Matrix4x4.identity };
+
+            string srcPath = AssetDatabase.GetAssetPath(src);
+            string folder  = !string.IsNullOrEmpty(srcPath) && srcPath.StartsWith("Assets/")
+                ? System.IO.Path.GetDirectoryName(srcPath).Replace('\\', '/')
+                : BonelessSmrFallbackFolder;
+            if (!AssetDatabase.IsValidFolder(folder))
+            {
+                System.IO.Directory.CreateDirectory(folder);
+                AssetDatabase.Refresh();
+            }
+
+            string fileName = mesh.name;
+            foreach (var c in System.IO.Path.GetInvalidFileNameChars()) fileName = fileName.Replace(c, '_');
+            AssetDatabase.CreateAsset(mesh, AssetDatabase.GenerateUniqueAssetPath($"{folder}/{fileName}.asset"));
+            return mesh;
+        }
+
+        /// 익스포트/베이크 시 이름 충돌이 없도록 계층 전체에서 유일한 본 이름을 만든다.
+        private static string BonelessSmrUniqueBoneName(Transform smrT)
+        {
+            var names = new HashSet<string>();
+            foreach (var t in smrT.root.GetComponentsInChildren<Transform>(true)) names.Add(t.name);
+
+            string baseName = smrT.name + "_Bone";
+            string name = baseName;
+            for (int i = 1; names.Contains(name); i++) name = $"{baseName}_{i}";
+            return name;
+        }
     }
 }

@@ -7,6 +7,10 @@
 //   4) Missing / Disabled Scripts — 미싱·비활성 MonoBehaviour 정리
 //   5) Missing Bones            — SkinnedMeshRenderer.bones 의 null 검사
 //   6) Humanoid Bone Extractor  — 아바타 복제 후 휴머노이드 본만 남겨 스켈레톤 추출
+//   7) Smart Empty Object Cleaner — SMR 미참조 빈 오브젝트 정리
+//   8) Inactive Object Finder   — 비활성 오브젝트 탐색
+//   9) Magica Collider Symmetry Fixer — Biped 아바타의 빈 Symmetry Target 을 반대편 Primary 본으로 지정
+//  10) Boneless SMR Fixer       — 본이 없는 SMR(익스포트 시 소실) 검출 + 본 생성·100% 스키닝
 //
 // 코어 로직은 YamoAssetCheckerCore.cs 의 정적 메서드를 호출.
 // 이 파일은 UI / 상태 관리 / 결과 표시만 담당.
@@ -76,6 +80,20 @@ namespace YAMO.UnityTools.Editor
         private Vector2 _stage1Scroll;
         private Vector2 _stage2Scroll;
 
+        // ---- 섹션 9: Magica Collider Symmetry Fixer ----
+        private bool _foldMagicaSymmetry = true;
+        private GameObject _magicaSymmetryRoot;
+        private List<YamoAssetCheckerCore.MagicaSymmetryEntry> _magicaSymmetryEntries = new List<YamoAssetCheckerCore.MagicaSymmetryEntry>();
+        private bool _magicaSymmetryScanned = false;
+        private Vector2 _magicaSymmetryScroll;
+
+        // ---- 섹션 10: Boneless SMR Fixer ----
+        private bool _foldBonelessSmr = true;
+        private GameObject _bonelessSmrScanSelection;   // null = 씬 전체 스캔
+        private List<YamoAssetCheckerCore.BonelessSmrEntry> _bonelessSmrEntries = new List<YamoAssetCheckerCore.BonelessSmrEntry>();
+        private bool _bonelessSmrScanned = false;
+        private Vector2 _bonelessSmrScroll;
+
         [MenuItem("Tools/YAMO/Bones/YAMO Asset Checker")]
         public static void ShowWindow()
         {
@@ -118,6 +136,8 @@ namespace YAMO.UnityTools.Editor
             DrawHumanoidExtractorSection();
             DrawSmartEmptyCleanerSection();
             DrawInactiveObjectsSection();
+            DrawMagicaSymmetrySection();
+            DrawBonelessSmrSection();
 
             EditorGUILayout.EndScrollView();
         }
@@ -746,6 +766,178 @@ namespace YAMO.UnityTools.Editor
             }
 
             EditorGUI.indentLevel--;
+        }
+
+        // ============================================================
+        // 섹션 9: Magica Collider Symmetry Fixer
+        // ============================================================
+        private void DrawMagicaSymmetrySection()
+        {
+            DrawSeparator();
+            _foldMagicaSymmetry = EditorGUILayout.Foldout(_foldMagicaSymmetry, "9. Magica Collider Symmetry Fixer", true, EditorStyles.foldoutHeader);
+            if (!_foldMagicaSymmetry) return;
+
+            EditorGUI.indentLevel++;
+            EditorGUILayout.HelpBox(
+                "Biped 변환 아바타에서 MagicaCloth2 콜라이더의 Automatic 시메트리가 반대편 본을 찾지 못하는 문제를 수정합니다.\n" +
+                "팔(어깨 이하)/다리의 원본(Primary) 본 아래 콜라이더 중 Symmetry Target 이 비었거나 Biped 본인 것을 찾아,\n" +
+                "X_Symmetry + 반대편 Primary 본(예: LeftHand → RightHand)으로 설정합니다. Biped 본은 타겟으로 쓰지 않습니다.",
+                MessageType.None);
+
+            _magicaSymmetryRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _magicaSymmetryRoot, typeof(GameObject), true);
+
+            using (new EditorGUI.DisabledScope(_magicaSymmetryRoot == null))
+            {
+                if (GUILayout.Button("Scan"))
+                {
+                    _magicaSymmetryEntries  = YamoAssetCheckerCore.ScanMagicaSymmetryTargets(_magicaSymmetryRoot);
+                    _magicaSymmetryScanned  = true;
+                }
+            }
+
+            if (_magicaSymmetryScanned)
+            {
+                EditorGUILayout.Space(2);
+                if (_magicaSymmetryEntries.Count == 0)
+                {
+                    EditorGUILayout.HelpBox("수정이 필요한 시메트리 콜라이더가 없습니다.", MessageType.Info);
+                }
+                else
+                {
+                    int fixable = 0;
+                    foreach (var e in _magicaSymmetryEntries) if (e.Fixable) fixable++;
+                    EditorGUILayout.LabelField($"발견: {_magicaSymmetryEntries.Count}개  (수정 가능 {fixable}개)");
+
+                    _magicaSymmetryScroll = EditorGUILayout.BeginScrollView(_magicaSymmetryScroll, GUILayout.Height(180));
+                    foreach (var e in _magicaSymmetryEntries)
+                    {
+                        if (e.Collider == null) continue;
+                        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                        EditorGUILayout.BeginHorizontal();
+                        using (new EditorGUI.DisabledScope(true))
+                            EditorGUILayout.ObjectField(e.Collider.gameObject, typeof(GameObject), true);
+                        if (GUILayout.Button("▶", GUILayout.Width(24)))
+                        {
+                            Selection.activeGameObject = e.Collider.gameObject;
+                            EditorGUIUtility.PingObject(e.Collider.gameObject);
+                        }
+                        EditorGUILayout.EndHorizontal();
+
+                        string cur = e.CurrentTarget != null ? e.CurrentTarget.name : "None";
+                        if (e.Fixable)
+                            EditorGUILayout.LabelField($"  {e.CurrentModeName} / {cur}  →  X_Symmetry / {e.MirrorBone.name}", EditorStyles.miniLabel);
+                        else
+                            EditorGUILayout.LabelField($"  ⚠ '{e.PrimaryBone.name}' 의 반대편 Primary 본을 찾지 못함 (수동 설정 필요)", EditorStyles.miniLabel);
+                        EditorGUILayout.EndVertical();
+                    }
+                    EditorGUILayout.EndScrollView();
+
+                    using (new EditorGUI.DisabledScope(fixable == 0))
+                    {
+                        if (GUILayout.Button($"Fix All  ({fixable}개)"))
+                        {
+                            int n = YamoAssetCheckerCore.FixMagicaSymmetryTargets(_magicaSymmetryEntries);
+                            Debug.Log($"[AssetChecker] Magica 시메트리 타겟 {n}개 수정 완료.");
+                            _magicaSymmetryEntries = YamoAssetCheckerCore.ScanMagicaSymmetryTargets(_magicaSymmetryRoot);
+                        }
+                    }
+                }
+            }
+
+            EditorGUI.indentLevel--;
+        }
+
+        // ============================================================
+        // 섹션 10: Boneless SMR Fixer
+        // ============================================================
+        private void DrawBonelessSmrSection()
+        {
+            DrawSeparator();
+            _foldBonelessSmr = EditorGUILayout.Foldout(_foldBonelessSmr, "10. Boneless SMR Fixer", true, EditorStyles.foldoutHeader);
+            if (!_foldBonelessSmr) return;
+
+            EditorGUI.indentLevel++;
+            EditorGUILayout.HelpBox(
+                "본/바인드포즈가 하나도 없는 SkinnedMeshRenderer 를 찾습니다 (블렌드셰이프만 있는 소품 등).\n" +
+                "이런 메시는 FBX/VRM 익스포트 시 통째로 소실됩니다.\n" +
+                "FIX: SMR 과 같은 부모·같은 위치에 '<이름>_Bone' 을 생성하고 100% 스키닝한 메시 사본(.asset)으로 교체합니다. 원본 메시는 유지됩니다.",
+                MessageType.None);
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Scan Whole Scene"))
+            {
+                _bonelessSmrScanSelection = null;
+                RescanBonelessSmrs();
+            }
+            using (new EditorGUI.DisabledScope(Selection.activeGameObject == null))
+            {
+                if (GUILayout.Button("Scan Selection (children)"))
+                {
+                    _bonelessSmrScanSelection = Selection.activeGameObject;
+                    RescanBonelessSmrs();
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            if (_bonelessSmrScanned)
+            {
+                EditorGUILayout.Space(2);
+                if (_bonelessSmrEntries.Count == 0)
+                {
+                    EditorGUILayout.HelpBox("본이 없는 SkinnedMeshRenderer 가 없습니다.", MessageType.Info);
+                }
+                else
+                {
+                    EditorGUILayout.LabelField($"문제 발견: {_bonelessSmrEntries.Count}개의 SkinnedMeshRenderer", EditorStyles.boldLabel);
+
+                    YamoAssetCheckerCore.BonelessSmrEntry fixOne = null;
+                    _bonelessSmrScroll = EditorGUILayout.BeginScrollView(_bonelessSmrScroll, GUILayout.Height(150));
+                    foreach (var e in _bonelessSmrEntries)
+                    {
+                        if (e.Renderer == null) continue;
+                        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                        EditorGUILayout.BeginHorizontal();
+                        using (new EditorGUI.DisabledScope(true))
+                            EditorGUILayout.ObjectField(e.Renderer, typeof(SkinnedMeshRenderer), true);
+                        if (GUILayout.Button("▶", GUILayout.Width(24)))
+                        {
+                            Selection.activeGameObject = e.Renderer.gameObject;
+                            EditorGUIUtility.PingObject(e.Renderer.gameObject);
+                        }
+                        if (GUILayout.Button("FIX", GUILayout.Width(44))) fixOne = e;
+                        EditorGUILayout.EndHorizontal();
+                        string parentName = e.Renderer.transform.parent != null ? e.Renderer.transform.parent.name : "(scene root)";
+                        EditorGUILayout.LabelField(
+                            $"  ⚠ bones {e.BoneCount}개 / bindposes {e.BindposeCount}개  →  '{parentName}' 아래에 본 생성",
+                            EditorStyles.miniLabel);
+                        EditorGUILayout.EndVertical();
+                    }
+                    EditorGUILayout.EndScrollView();
+
+                    bool fixAll = GUILayout.Button($"FIX All  ({_bonelessSmrEntries.Count}개)");
+
+                    if (fixOne != null || fixAll)
+                    {
+                        var targets = fixAll
+                            ? _bonelessSmrEntries
+                            : new List<YamoAssetCheckerCore.BonelessSmrEntry> { fixOne };
+                        int n = YamoAssetCheckerCore.FixBonelessSmrs(targets);
+                        Debug.Log($"[AssetChecker] 본 없는 SMR {n}개 수정 완료.");
+                        RescanBonelessSmrs();
+                        GUIUtility.ExitGUI();
+                    }
+                }
+            }
+
+            EditorGUI.indentLevel--;
+        }
+
+        private void RescanBonelessSmrs()
+        {
+            _bonelessSmrEntries = _bonelessSmrScanSelection != null
+                ? YamoAssetCheckerCore.ScanBonelessSmrsInChildren(_bonelessSmrScanSelection)
+                : YamoAssetCheckerCore.ScanBonelessSmrsInScene();
+            _bonelessSmrScanned = true;
         }
 
         // ============================================================

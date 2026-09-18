@@ -50,7 +50,7 @@ Packages/com.yamo.unitytools/
     │       ├── AnimClipReducerWindow.cs            ← Tools/YAMO/Animation/Anim Clip Reducer (UI Toolkit)
     │       └── AnimYamlOptimizer.cs                ← .anim YAML 후처리 (정밀도 축소)
     ├── Assets/
-    │   └── MaterialAndTextureCollectorWindow.cs    ← Tools/YAMO/Assets/Material And Texture Tool (4섹션 통합)
+    │   └── MaterialAndTextureCollectorWindow.cs    ← Tools/YAMO/Assets/Material And Texture Tool (3섹션 통합)
     ├── BlendShapeLink/
     │   └── BlendShapeLinkEditor.cs                 ← BlendShapeLink CustomEditor
     ├── Biped/
@@ -229,12 +229,27 @@ Packages/com.yamo.unitytools/
 ### 5-4. Editor / Assets
 
 #### `Assets/MaterialAndTextureCollectorWindow.cs` — `Tools/YAMO/Assets/Material And Texture Tool`
-4 섹션 통합 (foldout):
+3 섹션 통합 (foldout):
 
 1. **머테리얼/텍스처 관리**: Prefab 하위 머티리얼·텍스처 수집·중복 검출·복사·이동
 2. **PSD → PNG 변환**: GUID 보존하며 PSD 를 PNG 로 일괄 변환 (메타 이식 + 원본 삭제)
 3. **텍스처 리사이즈 (2048 초과)**: NormalMap 채널 왜곡 방지 (Default 타입 임시 변경 + sRGB false 강제), HDR→EXR 자동 변환
-4. **닐로툰 매트캡 자동 인식기**: lilToon `_UseMatCap`/`_UseMatCap2nd` 슬롯 → NiloToon `_BaseMapStackingLayer[n]*` 로 자동 주입. lilToon 셰이더 임시 교체 후 프로퍼티 추출 (Shader.Find 기반, asmdef 참조 X)
+4. **Convert NiloToon**: 머티리얼 백업(`Assets/MaterialsBackup`) → NiloToon Auto setup(변환) → 텍스처 없는 활성 기능 정리. UI 만 담당, 로직은 `NiloToonConvertCore`.
+
+#### `Assets/NiloToonConvertCore.cs`
+- 정적 API: `ConvertAvatar(root)`(백업→변환→정리), `CleanupOnly(root)`, `LoadBackupSet(folder, out error)`, `RestoreFromBackup(BackupSet)`, `IsSupported`/`InstalledNiloToonVersion`/`IsVersionSupported(text)`. 결과는 `Result.ToText()`.
+#### `Assets/LilToonMainColorBaker.cs`
+- `ConvertAvatar(root, bakeLilToonMainColor = true)` 가 **백업 後·Auto setup 前**에 호출. lilToon 의 메인 컬러(`_Color`)·`_MainTexHSVG`·그라디언트 맵을 메인 텍스처에 굽고 머티리얼을 색=흰색/HSVG 기본값으로 되돌린다(lilToon 인스펙터 [굽기] 의 헤드리스 재현).
+- 이유: lilToon `_Color` 는 `[lilHDR]`(Unity 는 sRGB 로 보고 리니어 변환), NiloToon `_BaseColor` 는 `[HDR]`(변환 없음) → 같은 값을 옮기면 NiloToon 에서 밝고 탁해진다. HSVG 는 구현이 다르고 그라디언트는 NiloToon 이 옮기지 않는다.
+- lilToon 을 **하드 참조하지 않는다** — 베이커 셰이더를 이름(`Hidden/ltsother_baker`)으로만 찾고, 렌더 경로는 `lilToonInspector.RunBake`(기본 RenderTexture → ReadPixels)와 동일하게 재현. 셰이더가 없으면(=lilToon 미설치) 로그만 남기고 건너뛴다. lilToon 이 베이커 셰이더의 프로퍼티 이름을 바꾸면 여기서 깨지므로 lilToon 업데이트 후 색 굽기 결과를 한 번 확인할 것(개발 기준 lilToon 2.3.2).
+- 원본 텍스처는 덮어쓰지 않음(`<텍스처>_Baked.png` 신규, 임포트 설정 복사, PNG/JPG 는 원본 파일 바이트를 직접 읽어 임포트 크기·압축 영향 배제). 같은 텍스처+같은 설정은 결과 공유. 텍스처 없는 머티리얼은 4×4 단색 텍스처. 실패 시 해당 머티리얼 무변경. `YAMO_MaxMainTextureMap.tsv` 행 갱신/추가. 메인 레이어만 굽는다(2nd/3rd·데칼 제외).
+
+- **이미 NiloToon 이면 무동작**: `IsAlreadyNiloToon(root)`(참조 `.mat` 전부 NiloToon_Character). `ConvertAvatar` 는 이 경우 백업·변환·정리 없이 `AlreadyNiloToon=true` 로 반환하고, UI 는 안내 + Convert 버튼 비활성. 혼합 아바타에서는 **이번에 새로 변환된 머티리얼만 정리**하고 원래 NiloToon 이던 것은 `UntouchedNilo` 로 남긴다(손으로 조정한 Smoothness 등을 초기화하지 않기 위함). 이 보호를 없애지 말 것 — 전체 정리는 `CleanupOnly` 로 명시 실행.
+- **버전 게이트**: `MinimumNiloToonVersion = "0.17.14"`(개발·검증 버전). NiloToon `package.json`의 version 을 읽어(`PackageInfo.FindForAssembly` → 실패 시 asmdef 위치에서 상위로 탐색) 미만/미설치/확인 불가면 `IsSupported == false` → 윈도우가 섹션 4 를 **아예 그리지 않는다**. NiloToon 쪽 API·프로퍼티 이름이 바뀌어 최소 버전을 올려야 하면 이 상수만 수정.
+- **백업은 이동 가능**: 맵 파일(`_YAMO_MaterialBackupMap.tsv`, v2)에 원본 GUID·백업 GUID·백업 파일명·당시 원본 경로를 기록. 백업 폴더 생성 시 그 안에 TSV 를 남기고, **복구는 사용자가 백업 폴더를 선택 → 그 폴더의 TSV 를 읽는 방식**(`LoadBackupSet`; 자동 검색 없음, UI 는 폴더 경로가 바뀔 때만 TSV 를 다시 읽도록 캐시). 백업 머티리얼은 선택한 폴더 안의 파일명 우선(폴더를 복제해 GUID 가 달라져도 동작) → 백업 GUID, 원본 머티리얼은 GUID 우선 → 기록된 경로. 백업 위치를 경로로 하드코딩하는 코드를 다시 넣지 말 것.
+- NiloToon 은 **리플렉션으로만** 접근(`NiloToon.NiloToonURP.NiloToonEditorPerCharacterRenderControllerCustomEditor.AutoSetupCharacterGameObject(GameObject,bool,bool)`) — asmdef 하드 참조/define 불필요. 미설치 시 UI 에 경고만 표시.
+- 정리 대상은 `BuildFeatures()` 의 데이터 테이블(토글 프로퍼티 + 키워드 + 판정 텍스처). NiloToon 은 LWGUI `[Main(group, KEYWORD)]` 구조라 **토글 float 과 키워드를 반드시 함께** 꺼야 한다. 기능을 추가/제외하려면 이 테이블만 수정. `Feature.KeepIfColorNotBlack`(현재 Emission=`_EmissionColor`)이 지정된 기능은 텍스처가 없어도 그 색이 검정이 아니면 유지한다 — 맵 없이 색만으로 발광시키는 정상 사용을 끄지 않기 위함(사용자 확정).
+- Smoothness 그룹은 끌 수 없어 `Shader.GetPropertyDefault*Value` 로 셰이더 선언 기본값을 읽어 초기화(하드코딩 아님).
 
 - 외부 의존성 없음. `AssetDatabase`, `TextureImporter` 기반.
 - **수정 포인트**: 각 섹션은 private 메서드 뭉치로 분리. UI 진입점은 `DrawGUI()` 의 `secNFoldout`.
@@ -258,6 +273,8 @@ Packages/com.yamo.unitytools/
 | 3. Unused Bones | 어떤 SMR 도 참조 안 하는 Transform 검출 + Selection 으로 추가. 부분문자열 / Magica / VRMSpringBone 컴포넌트 제외 옵션 |
 | 4. Missing / Disabled Scripts | Missing MonoBehaviour 카운트/제거, Disabled MonoBehaviour 제거 |
 | 5. Missing Bones (SMR) | 씬/Selection 의 SkinnedMeshRenderer 의 `bones[i] == null` 또는 rootBone null 검출 |
+| 9. Magica Collider Symmetry Fixer | Biped 변환 아바타에서 MagicaCloth2 콜라이더의 Automatic 시메트리가 반대편 본을 못 찾는 문제 수정 — 팔/다리 Primary 본 아래 콜라이더 중 Symmetry Target 이 비었거나 Biped 본인 것을 찾아 `X_Symmetry` + 반대편 Primary 본으로 설정(SerializedObject 접근, MagicaCloth2 하드 참조 없음). API: `ScanMagicaSymmetryTargets`, `FixMagicaSymmetryTargets` |
+| 10. Boneless SMR Fixer | bones/bindposes 가 0개인 SMR(블렌드셰이프만 있는 소품 등 — FBX/VRM 익스포트 시 메시 소실) 검출. FIX: SMR 과 같은 부모·같은 로컬 트랜스폼에 `<이름>_Bone` 생성 + 100% 스키닝한 메시 사본(`<메시>_Skinned.asset`, 원본 메시 옆)으로 교체. API: `ScanBonelessSmrsInScene/Children`, `FixBonelessSmrs` |
 
 #### `Bones/YamoAssetCheckerCore.cs`
 - 위 5 섹션이 호출하는 정적 헬퍼 모음 (UI 무관 순수 로직).
@@ -457,6 +474,12 @@ namespace YAMO.UnityTools.Editor
 | Hub 단축키 충돌 | `Edit ▸ Shortcuts` → "YAMO/Open Tool Hub" 검색 → 다른 키로 변경 |
 
 ## 9. 변경 이력 요약
+
+### 0.9.0
+- Asset Checker `10. Boneless SMR Fixer` 추가 — bones/bindposes 가 0개인 SkinnedMeshRenderer(FBX/VRM 익스포트 시 메시 소실)를 검출하고, 같은 부모·같은 로컬 트랜스폼에 `<이름>_Bone` 을 만들어 100% 스키닝.
+- Asset Checker `9. Magica Collider Symmetry Fixer` 추가 — Biped 아바타의 MagicaCloth2 콜라이더 Symmetry Target 을 반대편 Primary 본으로 지정.
+- Material And Texture Tool 섹션 4 를 `Convert NiloToon` 으로 교체(기존 "닐로툰 매트캡 자동 인식기" 제거) — 머티리얼 백업(폴더 안 TSV, 폴더 선택식 복구) → lilToon 메인 컬러/HSV·Gamma/그라디언트 텍스처 굽기 → NiloToon Auto setup → 텍스처 없는 활성 기능 정리. NiloToon 0.17.14 이상에서만 노출, 이미 NiloToon 인 아바타는 무동작.
+- 머티리얼 복사가 현재 셰이더에 없는 프로퍼티의 잔여 텍스처 참조도 복사·재지정(`CopyStaleTextureReferences`), `CollectDuplicates` 의 비텍스처 프로퍼티 에러 로그 제거.
 
 ### 0.8.0
 - Added BlendShape Curve Remapper with Mesh-path/property selection, configurable value mapping, Linear tangents, and EditMode coverage.

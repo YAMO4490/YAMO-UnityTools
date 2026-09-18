@@ -103,24 +103,6 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     private bool texResizeScanned = false;
 
     // =====================================================
-    // 섹션 4: 닐로툰 매트캡 자동 인식기
-    // =====================================================
-    // 원본: NilotoonMaterialMatcapSetter.cs (UI Toolkit) → IMGUI 로 포팅 통합
-    private struct MatcapInfo
-    {
-        public bool   UseMatCap;
-        public Texture Tex;
-        public Color   Color;
-        public Texture BlendMask;
-        public int     BlendMode;
-    }
-    private List<Material> matcapMaterials = new List<Material>();
-    private Vector2 matcapScroll;
-    private const string MatcapTargetShaderName = "lilToon";
-    private const string MatcapEnableNameFront  = "_BaseMapStackingLayer";
-    private const string MatcapEnableNameBack   = "Enable";
-
-    // =====================================================
     // 공통
     // =====================================================
     private Vector2 scroll;
@@ -128,6 +110,16 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     private bool sec2Foldout = true;
     private bool sec3Foldout = true;
     private bool sec4Foldout = true;
+
+    // =====================================================
+    // 섹션 4: Convert NiloToon
+    // =====================================================
+    private List<string> niloConvertLog = new List<string>();
+    private bool niloBakeLilColor = true;    // 변환 전 lilToon 메인 컬러를 텍스처에 굽기
+    private string niloRestoreFolder = "";   // 복구할 백업 폴더 (사용자가 선택)
+    private string niloRestoreLoadedFolder;  // niloRestoreSet 을 읽어온 폴더 (캐시 키)
+    private NiloToonConvertCore.BackupSet niloRestoreSet;
+    private string niloRestoreError;
 
     // 수정됨: "&" -> "And"로 원복하여 기존 경로와 일치시킴
     [MenuItem("Tools/YAMO/Assets/Material And Texture Tool")]
@@ -463,63 +455,126 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         }
         // ▲▲▲ 섹션 3 ▲▲▲
 
-        // ▼▼▼ 섹션 4: 닐로툰 매트캡 자동 인식기 ▼▼▼
-        sec4Foldout = DrawFoldoutSectionHeader(sec4Foldout, "🎨  닐로툰 매트캡 자동 인식기 (lilToon → NiloToon)");
-        if (sec4Foldout)
+        // ▼▼▼ 섹션 4: Convert NiloToon ▼▼▼
+        // NiloToon 미설치 또는 MinimumNiloToonVersion 미만이면 섹션 자체를 그리지 않는다
+        if (NiloToonConvertCore.IsSupported)
         {
-            EditorGUILayout.HelpBox(
-                "선택한 NiloToon 머티리얼에서 lilToon 매트캡 값을 찾아\n" +
-                "BaseMapStackingLayer 슬롯에 자동 반영합니다.\n" +
-                "원본 셰이더를 임시로 lilToon 으로 교체해 MatCap 프로퍼티만 읽으므로\n" +
-                "프로젝트에 lilToon 셰이더가 설치돼 있어야 합니다.",
-                MessageType.Info);
-
-            // 드래그 앤 드롭 영역
-            Rect dropArea = GUILayoutUtility.GetRect(0, 50, GUILayout.ExpandWidth(true));
-            GUI.Box(dropArea, "여기에 머티리얼을 드래그하세요");
-            HandleMatcapDragAndDrop(dropArea);
-
-            // 추가된 머티리얼 리스트
-            EditorGUILayout.Space(2);
-            if (matcapMaterials.Count == 0)
-            {
-                EditorGUILayout.LabelField("(추가된 머티리얼 없음)", EditorStyles.miniLabel);
-            }
-            else
-            {
-                EditorGUILayout.LabelField($"📋 추가된 머티리얼 ({matcapMaterials.Count}개)", EditorStyles.boldLabel);
-                matcapScroll = EditorGUILayout.BeginScrollView(matcapScroll, GUILayout.Height(120));
-                for (int i = matcapMaterials.Count - 1; i >= 0; i--)
-                {
-                    EditorGUILayout.BeginHorizontal();
-                    matcapMaterials[i] = (Material)EditorGUILayout.ObjectField(matcapMaterials[i], typeof(Material), false);
-                    if (GUILayout.Button("X", GUILayout.Width(24)))
-                    {
-                        matcapMaterials.RemoveAt(i);
-                        GUIUtility.ExitGUI();
-                    }
-                    EditorGUILayout.EndHorizontal();
-                }
-                EditorGUILayout.EndScrollView();
-
-                if (GUILayout.Button("리스트 비우기", GUILayout.Width(120)))
-                {
-                    matcapMaterials.Clear();
-                }
-            }
-
-            EditorGUILayout.Space(4);
-            using (new EditorGUI.DisabledScope(matcapMaterials.Count == 0))
-            {
-                if (GUILayout.Button("자동 복사 실행", GUILayout.Height(28)))
-                {
-                    ProcessMatcapMaterials();
-                }
-            }
+            sec4Foldout = DrawFoldoutSectionHeader(sec4Foldout, "🎨  Convert NiloToon");
+            if (sec4Foldout) DrawConvertNiloToonSection();
         }
         // ▲▲▲ 섹션 4 ▲▲▲
 
         EditorGUILayout.EndScrollView();
+    }
+
+    // =====================================================
+    // 섹션 4: Convert NiloToon (로직은 NiloToonConvertCore)
+    // =====================================================
+    void DrawConvertNiloToonSection()
+    {
+        EditorGUILayout.HelpBox(
+            "타겟(씬 오브젝트)의 머티리얼을 NiloToon 으로 변환합니다.\n" +
+            "1) 머티리얼을 " + NiloToonConvertCore.BackupRootFolder + " 에 백업 + 폴더 안에 기록 TSV 생성 (폴더째 옮겨도 복구 가능)\n" +
+            "1.5) lilToon 메인 컬러·HSV/Gamma·그라디언트를 텍스처에 굽기 (원본 텍스처는 유지, '_Baked.png' 신규 생성)\n" +
+            "2) NiloToonPerCharacterRenderController 추가 + Auto setup this character\n" +
+            "3) 켜져 있지만 텍스처가 없는 기능(Stacking Layer / MatCap 전체 / Emission / Normal Map / Specular / Occlusion) OFF,\n" +
+            "    Generic Reflection 항상 OFF, Smoothness/Roughness 기본값 초기화\n" +
+            "※ 머티리얼 에셋을 직접 수정하므로, 먼저 섹션 1 에서 아바타 전용 사본으로 복사해 두세요.",
+            MessageType.Info);
+
+        // 섹션 1 의 타겟을 그대로 사용
+        targetPrefab = (GameObject)EditorGUILayout.ObjectField("📦 타겟 (씬 오브젝트)", targetPrefab, typeof(GameObject), true);
+
+        GUILayout.Label($"NiloToon {NiloToonConvertCore.InstalledNiloToonVersion}  (요구: {NiloToonConvertCore.MinimumNiloToonVersion} 이상)", EditorStyles.miniLabel);
+
+        // 이미 전부 NiloToon 이면 이 단계는 필요 없다 — 변환 버튼을 막고 안내만 한다
+        bool alreadyNilo = targetPrefab != null && NiloToonConvertCore.IsAlreadyNiloToon(targetPrefab);
+        if (alreadyNilo)
+            EditorGUILayout.HelpBox("이 아바타의 머티리얼은 이미 전부 NiloToon 입니다. 변환 단계를 건너뛰세요.", MessageType.Info);
+
+        using (new EditorGUI.DisabledScope(targetPrefab == null))
+        {
+            niloBakeLilColor = EditorGUILayout.ToggleLeft(
+                new GUIContent("lilToon 메인 컬러 / HSV·Gamma / 그라디언트를 텍스처에 굽고 변환 (권장)",
+                    "lilToon 과 NiloToon 은 메인 컬러를 다르게 해석해서(sRGB vs HDR 리니어) 굽지 않으면 색이 밝고 탁해집니다.\n" +
+                    "원본 텍스처는 그대로 두고 같은 폴더에 '<이름>_Baked.png' 를 새로 만듭니다."),
+                niloBakeLilColor);
+
+            using (new EditorGUI.DisabledScope(alreadyNilo))
+            if (GUILayout.Button("🎨 Convert NiloToon (백업 → 색 굽기 → 변환 → 정리)"))
+            {
+                var result = NiloToonConvertCore.ConvertAvatar(targetPrefab, niloBakeLilColor);
+                SetNiloConvertLog(result.ToText());
+                if (result.Success) Debug.Log("[ConvertNiloToon] 완료\n" + result.ToText(), targetPrefab);
+                else Debug.LogError("[ConvertNiloToon] 실패\n" + result.ToText(), targetPrefab);
+                if (!string.IsNullOrEmpty(result.BackupFolder)) niloRestoreFolder = result.BackupFolder;
+            }
+            if (GUILayout.Button("🧹 정리만 실행 (이미 NiloToon 인 머티리얼)"))
+            {
+                var result = NiloToonConvertCore.CleanupOnly(targetPrefab);
+                SetNiloConvertLog(result.ToText());
+                Debug.Log("[ConvertNiloToon] 정리만 실행\n" + result.ToText(), targetPrefab);
+            }
+        }
+
+        // 백업 복구 — 백업 머티리얼이 들어있는 폴더를 고르면 그 안의 TSV 를 읽어 복구한다
+        GUILayout.Space(6);
+        GUILayout.Label("↩️ 백업에서 복구", EditorStyles.boldLabel);
+        EditorGUILayout.BeginHorizontal();
+        niloRestoreFolder = EditorGUILayout.TextField("📂 백업 폴더", niloRestoreFolder);
+        if (GUILayout.Button("선택", GUILayout.Width(60)))
+        {
+            var selected = ChooseFolder(string.IsNullOrEmpty(niloRestoreFolder) ? NiloToonConvertCore.BackupRootFolder : niloRestoreFolder);
+            if (!string.IsNullOrEmpty(selected)) { niloRestoreFolder = selected; niloRestoreLoadedFolder = null; }
+        }
+        EditorGUILayout.EndHorizontal();
+
+        if (!string.IsNullOrEmpty(niloRestoreFolder))
+        {
+            // 폴더 경로가 바뀔 때만 TSV 를 다시 읽는다 (OnGUI 마다 파일을 읽지 않도록)
+            if (niloRestoreLoadedFolder != niloRestoreFolder)
+            {
+                niloRestoreSet = NiloToonConvertCore.LoadBackupSet(niloRestoreFolder, out niloRestoreError);
+                niloRestoreLoadedFolder = niloRestoreFolder;
+            }
+            var set = niloRestoreSet;
+            if (set == null)
+            {
+                EditorGUILayout.HelpBox(niloRestoreError, MessageType.Warning);
+            }
+            else
+            {
+                GUILayout.Label($"아바타: {set.AvatarName}   생성: {set.Created}   머티리얼: {set.Count}개", EditorStyles.miniLabel);
+                if (GUILayout.Button($"↩️ 이 백업으로 머티리얼 복구 ({set.Count}개)"))
+                {
+                    if (EditorUtility.DisplayDialog("Convert NiloToon",
+                        $"'{set.AvatarName}' ({set.Created}) 백업의 내용으로 원본 머티리얼 {set.Count}개를 덮어씁니다.\n" +
+                        $"백업 폴더: {set.Folder}\n(머티리얼 GUID/참조는 유지됩니다)",
+                        "복구", "취소"))
+                    {
+                        var log = new List<string>();
+                        int n = NiloToonConvertCore.RestoreFromBackup(set, log);
+                        log.Insert(0, $"복구: {n}/{set.Count}개 ← {set.Folder}");
+                        SetNiloConvertLog(string.Join("\n", log));
+                        Debug.Log("[ConvertNiloToon] " + string.Join("\n", log));
+                    }
+                }
+            }
+        }
+
+        if (niloConvertLog.Count > 0)
+        {
+            GUILayout.Space(6);
+            GUILayout.Label("📊 결과", EditorStyles.boldLabel);
+            foreach (var line in niloConvertLog)
+                GUILayout.Label(line, EditorStyles.miniLabel);
+        }
+    }
+
+    void SetNiloConvertLog(string text)
+    {
+        niloConvertLog.Clear();
+        niloConvertLog.AddRange(text.Split('\n'));
     }
 
     // =====================================================
@@ -556,6 +611,8 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
                 int count = ShaderUtil.GetPropertyCount(shader);
                 for (int i = 0; i < count; i++)
                 {
+                    // 텍스처가 아닌 속성에 GetTexture 를 호출하면 Unity 가 속성마다 에러 로그를 찍는다 (CopyTextures 와 동일한 가드)
+                    if (ShaderUtil.GetPropertyType(shader, i) != ShaderUtil.ShaderPropertyType.TexEnv) continue;
                     string propName = ShaderUtil.GetPropertyName(shader, i);
                     Texture tex = mat.GetTexture(propName);
                     if (tex == null || seenTextures.Contains(tex)) continue;
@@ -702,6 +759,8 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
             EditorUtility.SetDirty(copy);
         }
 
+        CopyStaleTextureReferences(copy);
+
         if (mainTextureForMax != null && textureCopies.TryGetValue(mainTextureForMax, out Texture copiedMainTexture))
         {
             // 파일명이 아니라 GUID를 저장 — PSD→PNG 변환·포맷 변경 리사이즈 후에도 유효하다.
@@ -709,6 +768,51 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
             string copiedTextureGuid = AssetDatabase.AssetPathToGUID(copiedTexturePath);
             if (!string.IsNullOrEmpty(copiedTextureGuid))
                 maxMainTextureGuidMap[copiedMaterialName] = copiedTextureGuid;
+        }
+    }
+
+    /// <summary>
+    /// 현재 셰이더에 없는 프로퍼티에 저장돼 있는 텍스처 참조(옛 셰이더의 잔여값)도 사본으로 돌린다.
+    /// new Material(orig) 는 이 잔여 참조까지 복제하지만 위의 셰이더 프로퍼티 순회는 이들을 방문하지 않아,
+    /// 그대로 두면 사본 머티리얼이 원본 폴더의 텍스처를 계속 가리킨다. 지금 셰이더에선 무해해도
+    /// 나중에 셰이더를 바꾸면(예: lilToon → NiloToon 의 _FaceMaskMap) 실제로 쓰이는 참조가 된다.
+    /// </summary>
+    void CopyStaleTextureReferences(Material copy)
+    {
+        var so = new SerializedObject(copy);
+        var envs = so.FindProperty("m_SavedProperties.m_TexEnvs");
+        if (envs == null) return;
+
+        bool changed = false;
+        for (int i = 0; i < envs.arraySize; i++)
+        {
+            var env = envs.GetArrayElementAtIndex(i);
+            string prop = env.FindPropertyRelative("first").stringValue;
+            if (copy.HasProperty(prop)) continue;   // 현재 셰이더 프로퍼티는 위 루프에서 처리됨
+
+            var texRef = env.FindPropertyRelative("second.m_Texture");
+            var tex = texRef.objectReferenceValue as Texture;
+            if (tex == null) continue;
+
+            string path = AssetDatabase.GetAssetPath(tex);
+            // 복사할 수 없는 것(빌트인/패키지 자산)은 그대로 둔다
+            if (string.IsNullOrEmpty(path) || !path.StartsWith("Assets/")) continue;
+
+            if (!textureCopies.ContainsKey(tex))
+            {
+                string newPath = AssetDatabase.GenerateUniqueAssetPath(textureOutputPath + "/" + tex.name + "_Copy" + Path.GetExtension(path));
+                AssetDatabase.CopyAsset(path, newPath);
+                textureCopies[tex] = AssetDatabase.LoadAssetAtPath<Texture>(newPath);
+            }
+
+            texRef.objectReferenceValue = textureCopies[tex];
+            changed = true;
+        }
+
+        if (changed)
+        {
+            so.ApplyModifiedPropertiesWithoutUndo();
+            EditorUtility.SetDirty(copy);
         }
     }
 
@@ -1509,130 +1613,6 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         var style = new GUIStyle(EditorStyles.miniLabel);
         style.normal.textColor = new Color(0.4f, 0.7f, 1f); // 하늘색
         return style;
-    }
-
-    // =====================================================
-    // 섹션 4 메서드: 닐로툰 매트캡 자동 인식기
-    // =====================================================
-
-    private void HandleMatcapDragAndDrop(Rect dropArea)
-    {
-        var evt = Event.current;
-        if (evt.type != EventType.DragUpdated && evt.type != EventType.DragPerform) return;
-        if (!dropArea.Contains(evt.mousePosition)) return;
-
-        DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
-
-        if (evt.type == EventType.DragPerform)
-        {
-            DragAndDrop.AcceptDrag();
-            foreach (var obj in DragAndDrop.objectReferences)
-            {
-                if (obj is Material m && !matcapMaterials.Contains(m))
-                {
-                    matcapMaterials.Add(m);
-                }
-            }
-            evt.Use();
-            Repaint();
-        }
-    }
-
-    /// <summary>
-    /// 추가된 머티리얼들에 대해 lilToon → NiloToon MatCap 이행 처리.
-    /// 각 머티리얼의 셰이더를 lilToon 으로 임시 교체한 클론에서 MatCap 값을 읽고,
-    /// 원본의 BaseMapStackingLayer[n] 빈 슬롯에 주입한다.
-    /// </summary>
-    private void ProcessMatcapMaterials()
-    {
-        Shader lilToonShader = Shader.Find(MatcapTargetShaderName);
-        if (lilToonShader == null)
-        {
-            EditorUtility.DisplayDialog("오류",
-                "lilToon Shader 를 찾을 수 없습니다. 먼저 프로젝트에 추가해주세요.", "확인");
-            Debug.LogError("[MatCap] lilToon Shader 미발견.");
-            return;
-        }
-
-        int processedCount = 0;
-        foreach (Material original in matcapMaterials)
-        {
-            if (original == null) continue;
-
-            Material clone = Object.Instantiate(original);
-            clone.shader = lilToonShader;
-
-            var infos = new List<MatcapInfo>();
-            var info1 = GetMatcapInfoByName(clone, "_UseMatCap",    isFirst: true);
-            var info2 = GetMatcapInfoByName(clone, "_UseMatCap2nd", isFirst: false);
-            if (info1.UseMatCap) infos.Add(info1);
-            if (info2.UseMatCap) infos.Add(info2);
-
-            foreach (var matcap in infos)
-            {
-                int targetLayer = 0;
-                for (int i = 1; i <= 10; i++)
-                {
-                    if (original.GetFloat(MatcapEnableNameFront + i + MatcapEnableNameBack) < 0.5f)
-                    {
-                        targetLayer = i;
-                        original.SetFloat(MatcapEnableNameFront + i + MatcapEnableNameBack, 1f);
-                        break;
-                    }
-                }
-                if (targetLayer == 0) continue; // 빈 슬롯이 없음
-
-                string layer = targetLayer.ToString();
-                original.SetVector($"_BaseMapStackingLayer{layer}TexUVCenterPivotScalePos", new Vector4(1, 1, 0, 0));
-                original.SetVector($"_BaseMapStackingLayer{layer}TexUVScaleOffset",        new Vector4(1, 1, 0, 0));
-                original.SetVector($"_BaseMapStackingLayer{layer}TexUVAnimSpeed",          new Vector4(0, 0, 0, 0));
-                original.SetVector($"_BaseMapStackingLayer{layer}MaskTexChannel",          new Vector4(0, 1, 0, 0));
-                original.SetFloat ($"_BaseMapStackingLayer{layer}TexUVRotatedAngle",  0);
-                original.SetFloat ($"_BaseMapStackingLayer{layer}TexUVRotateSpeed",   0);
-                original.SetFloat ($"_BaseMapStackingLayer{layer}MaskUVIndex",        0);
-                original.SetFloat ($"_BaseMapStackingLayer{layer}MaskInvertColor",    0);
-                original.SetFloat ($"_BaseMapStackingLayer{layer}TexIgnoreAlpha",     0);
-
-                int blend = matcap.BlendMode;
-                int mappedBlend = blend == 0 ? 0 : blend == 1 ? 2 : blend == 2 ? 3 : blend == 3 ? 4 : 5;
-                original.SetFloat($"_BaseMapStackingLayer{layer}ColorBlendMode", mappedBlend);
-
-                original.SetTexture($"_BaseMapStackingLayer{layer}Tex", matcap.Tex);
-                original.SetColor  ($"_BaseMapStackingLayer{layer}TintColor",
-                    new Color(matcap.Color.r, matcap.Color.g, matcap.Color.b, 1f));
-                original.SetFloat  ($"_BaseMapStackingLayer{layer}MasterStrength", matcap.Color.a);
-                original.SetFloat  ($"_BaseMapStackingLayer{layer}TexUVIndex",     4);
-                original.SetTexture($"_BaseMapStackingLayer{layer}MaskTex", matcap.BlendMask);
-
-                EditorUtility.SetDirty(original);
-            }
-
-            DestroyImmediate(clone);
-            processedCount++;
-        }
-
-        AssetDatabase.SaveAssets();
-        Debug.Log($"[MatCap] 자동 복사 완료: {processedCount}개 머티리얼");
-
-        matcapMaterials.Clear();
-        Repaint();
-    }
-
-    private MatcapInfo GetMatcapInfoByName(Material mat, string propertyName, bool isFirst)
-    {
-        string suffix = isFirst ? string.Empty : "2nd";
-        if (mat.HasProperty(propertyName) && mat.GetInt(propertyName) == 1)
-        {
-            return new MatcapInfo
-            {
-                UseMatCap = true,
-                Tex       = mat.GetTexture("_MatCap" + suffix + "Tex"),
-                Color     = mat.GetColor  ("_MatCap" + suffix + "Color"),
-                BlendMask = mat.GetTexture("_MatCap" + suffix + "BlendMask"),
-                BlendMode = mat.GetInt    ("_MatCap" + suffix + "BlendMode"),
-            };
-        }
-        return new MatcapInfo { UseMatCap = false };
     }
 }
 }
