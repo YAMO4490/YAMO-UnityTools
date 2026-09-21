@@ -9,7 +9,7 @@
 | 항목 | 내용 |
 |---|---|
 | 이름 | `com.yamo.unitytools` |
-| 버전 | 0.8.0 (Runtime asmdef 도입, Bake & Prefab Pipeline, Master Hub 추가) |
+| 버전 | 0.10.0 (Scale Bake, Avatar 전용 FBX, NiloToon 컨트롤러 이관) |
 | 대상 | Unity 2021.3 이상. Runtime 부분은 빌드에 포함, Editor 부분은 에디터 전용 |
 | 어셈블리 | 4개 — Runtime / Editor (코어) / Physics.Editor / Biped.Editor |
 | 메뉴 루트 | `Tools/YAMO/...` |
@@ -59,6 +59,9 @@ Packages/com.yamo.unitytools/
     │   └── BakeExport/
     │       ├── AvatarBakePipeline.cs               ← 베이크-임포트-마이그레이트-프리팹 오케스트레이션
     │       ├── AvatarBakePrefabWindow.cs           ← Tools/YAMO/Biped/Avatar Bake & Prefab Generator
+    │       ├── AvatarScaleBakeUtility.cs           ← 루트 배율 베이크·원본 프리팹 옆 자동 저장
+    │       ├── AvatarBakeFbxSetup.cs               ← 임포트·머티리얼 매핑·Bip001 Avatar FBX
+    │       ├── AvatarBakeComponentMigration.cs     ← 선택적 NiloToon 컨트롤러 복사·내부 참조 재연결
     │       ├── AvatarBakePreUtilities.cs           ← 베이크 전 사전 정리 (중복이름·휴머노이드 리네임)
     │       └── YamoBoneNormalizer.cs               ← UniGLTF BoneNormalizer fork + 회전 보존 옵션
     ├── Bones/
@@ -306,11 +309,12 @@ API:
 
 | 탭 | 임베드 도구 | 방식 |
 |---|---|---|
-| Avatar Bake & Prefab | `AvatarBakePrefabWindow` | DrawGUI() 임베드 |
+| Avatar Bake & Prefab | Avatar Bake / Biped Converter / Biped Deconverter / Scale Bake | 1~4번 하위 탭, 선택 도구만 DrawGUI() 임베드 |
 | Material & Texture | `MaterialAndTextureCollectorWindow` | DrawGUI() 임베드 |
 | Asset Checker | `YamoAssetChecker` | DrawGUI() 임베드 |
 | Animation | FacialAnimationBaker, ForearmHingeBaker, AnimClipReducerWindow | Launcher (별도 창 열기) — UI Toolkit 기반 도구 포함이라 IMGUI 임베드 곤란 |
 
+- **Avatar Bake 하위 탭**은 내용의 스크롤 바깥에 고정된다. 각 도구는 입력값과 스크롤 위치를 별도로 유지하고, Converter/Deconverter는 결과뿐 아니라 전체 내용을 스크롤한다.
 - **단축키**: `[Shortcut]` 어트리뷰트로 Unity ShortcutManager 등록. 기본값 `6` 단독, 식별자 `YAMO/Open Tool Hub`. `Edit ▸ Shortcuts` 에서 자유 재할당.
 - 임베드 도구는 `ScriptableObject.CreateInstance<T>()` 로 비표시 인스턴스 생성 → public `DrawGUI()` 호출.
 - **확장 방법**: 새 도구 추가 시 도구의 `OnGUI` 본체를 `public void DrawGUI()` 로 분리, `Tab` enum + `TabLabels` + 인스턴스 필드 + `OnEnable/OnDisable` + switch 분기 5 곳 추가.
@@ -325,7 +329,7 @@ UI 구성:
 - **Avatar Mode**: Auto / Humanoid / Generic, Force T-Pose
 - **Rotation Preservation**: Preserve All Rotations (기본 ON) + By Name Substring (옵션)
 - **Migrate**: Active States / BlendShapes / Physics / Constraints (각 토글)
-- **Pipeline Options**: Validate Unique Names, Zero BlendShapes Before Bake, Restore Source After Bake, Update When Offscreen (Prefab), Material Import: None
+- **Pipeline Options**: Validate Unique Names, Zero BlendShapes Before Bake, Restore Source After Bake, Update When Offscreen (Prefab)
 - **Log Panel** + Clear Log
 
 #### `Biped/BakeExport/AvatarBakePipeline.cs`
@@ -340,8 +344,10 @@ UI 구성:
 5) (옵션) T-Pose enforce
 6) Bake — YamoBoneNormalizer.Execute (NormalizeOptions: 회전 보존 정책)
 7) Export FBX — ModelExporter.ExportObject (UseMayaCompatibleNames=false 점 보존, Format=Binary)
+7.5) Auto/Humanoid + Bip001 본이 있으면 동일 베이크 결과에서 본만 추출한 _Avatar.fbx 생성
 8) (옵션) Restore source — snapshot 기준 lockstep 으로 active state + BlendShape weight 되돌림
-9) Import + ConfigureModelImporter — animationType (Humanoid/Generic), materialImportMode (옵션)
+9) Import + AvatarBakeFbxSetup — Read/Write + Legacy Blend Shape Normals ON, 원본 머티리얼 매핑
+   Bip001 Avatar가 있으면 본체 FBX는 Copy From Other Avatar, 프리팹 Animator는 해당 Avatar를 직접 참조
 10) Instantiate FBX → targetInstance 씬 배치
 11) BuildBoneMap(snapshot → targetInstance)
 12) Migrate (snapshot 을 source-of-truth):
@@ -349,11 +355,30 @@ UI 구성:
     - BlendShape weights  ← MigrateBlendShapes
     - Physics  ← MigrateColliders + MigrateMagicaCloth + MigrateVRMSpringBone
     - Constraints  ← MigrateConstraints
+    - NiloToonPerCharacterRenderController (원본에 있을 때만) ← 설정·활성화 상태·내부 참조 복사
 13) (옵션) updateWhenOffscreen = true 일괄 적용
 14) PrefabUtility.SaveAsPrefabAsset (덮어쓰기)
 ```
 
-진행률은 `EditorUtility.DisplayProgressBar` 로 표시. snapshot/targetInstance 는 성공 후에도 씬에 보존되어 사용자가 비교/검수 가능.
+진행률은 `EditorUtility.DisplayProgressBar` 로 표시. 성공 시 snapshot/targetInstance는 정리하고, 실패 시 진단용으로 남긴다. Restore Source After Bake가 켜져 있으면 실패 경로에서도 원본 활성화 상태와 BlendShape 가중치를 복원한다.
+
+#### `Biped/BakeExport/AvatarScaleBakeUtility.cs` — 4. Scale Bake
+- 씬의 프리팹 인스턴스 루트에 양수·균일 배율을 적용한 뒤 지정한다. 예: Scale (0.9, 0.9, 0.9).
+- 연결된 원본 프리팹 폴더에 `원본이름_scale_0.9.fbx`와 `.prefab`을 저장한다. 씬에서 바꾼 이름 대신 실제 프리팹 파일명을 사용하며 Variant도 지원한다.
+- 임시 복사본에서 전체 파이프라인을 실행한다. 루트 localScale만 사용하므로 부모의 배율이나 씬 배치가 결과에 섞이지 않으며, 원본은 유지되고 결과 Scale은 (1, 1, 1)이 된다.
+- 숨김 오브젝트 명세도 `원본이름_scale_0.9_HiddenObjects.md`로 분리한다. 기존 FBX/프리팹/Avatar FBX를 덮어쓸 때는 경로를 보여주고 확인한다.
+
+#### `Biped/BakeExport/AvatarBakeFbxSetup.cs`
+- 모든 출력 FBX의 Read/Write와 Legacy Blend Shape Normals를 활성화한다. Unity 2021의 Legacy 옵션은 SerializedObject로 접근한다.
+- 본체 FBX는 원본 렌더러/슬롯에 연결된 영구 Material 자산을 AddRemap으로 매핑한다. 슬롯 수 불일치나 모호한 매핑은 오류로 중단한다. 이전 Material Import: None 옵션은 제거했다.
+- Auto/Humanoid 모드에서 Bip001 본이 있으면 `이름_Avatar.fbx`를 생성한다. Bip001 이름의 본과 필요한 부모 Transform만 복사하며, 메시/렌더러/기타 컴포넌트는 포함하지 않는다.
+- 원본 Humanoid의 Bip001 매핑을 우선 보존하고 이름 매핑으로 보완한다. 필수 본과 생성된 Avatar의 유효성을 검사하며, 본체 FBX와 프리팹에서 이 Avatar를 사용한다. Generic 모드나 Bip001이 없는 아바타는 기존 단일 FBX 흐름을 유지한다.
+- 일부 입력 메시의 smoothing group이 없으면 Legacy Blend Shape Normals 계산 경고가 발생할 수 있다.
+
+#### `Biped/BakeExport/AvatarBakeComponentMigration.cs`
+- 원본 루트/자식의 NiloToonPerCharacterRenderController만 조건부 복사한다. NiloToon 어셈블리 하드 참조를 추가하지 않는다.
+- 직렬화된 설정과 enabled 상태를 복사하고, Head/Bounds/Renderer 등 내부 참조를 대상 계층으로 재연결한다. 외부 자산 참조는 유지한다.
+- 대상에 없는 내부 컴포넌트 참조는 임시 snapshot을 가리키지 않도록 비우고 경고한다. 반복 호출 시 컴포넌트를 중복 추가하지 않는다.
 
 #### `Biped/BakeExport/AvatarBakePreUtilities.cs`
 베이크 직전 정리용 정적 헬퍼:
@@ -468,12 +493,19 @@ namespace YAMO.UnityTools.Editor
 | `AvatarPhysicsMigrator` / Hub 등 메뉴가 안 보임 | 두 패키지 (MagicaCloth, VRM) 중 하나라도 없으면 Physics/Biped asmdef 가 비활성. **정상 동작**. |
 | 베이크 결과물에 BlendShape 가 죽음 (예: 눈감기 100 적용 후 베이크하면 EyesClose 가 0 으로 굽혀짐) | `Zero BlendShapes Before Bake` 옵션이 OFF 임. 기본 ON 상태로 사용 |
 | 본 이름의 점 (`.`) 이 `_` 로 바뀜 | 이전 버전 잔재. 현재는 `UseMayaCompatibleNames = false` 로 export 옵션 명시되어 점 보존됨 |
-| 머티리얼 슬롯 갯수/이름이 사라짐 | `Material Import: None` 토글 OFF 로 전환 (기본 OFF). Unity 기본 임포트가 슬롯 정보 보존 |
+| 머티리얼 매핑 오류로 베이크가 중단됨 | 원본 Material을 자산으로 저장했는지, 렌더러/슬롯이 일치하는지 확인. 0.10.0부터 자동 매핑하며 모호한 연결은 중단 |
 | Secondary 의 VRMSpringBone 이 1 개로 줄어듦 | 해결됨. `MigrateVRMSpringBone` 가 `AddComponent` 로 항상 새로 추가, `clearedDsts` 로 재실행 누적만 방지 |
 | Spine→Neck 본이 5 개인데 휴머노이드 리네임이 안 됨 | 의도된 abort. 본 계층 정리 후 재시도. 정상 chain intermediates ≤ 2 |
 | Hub 단축키 충돌 | `Edit ▸ Shortcuts` → "YAMO/Open Tool Hub" 검색 → 다른 키로 변경 |
 
 ## 9. 변경 이력 요약
+
+### 0.10.0
+- Avatar Bake & Prefab를 1~4번 하위 탭으로 구성하고, 4번 Scale Bake 추가.
+- 루트 배율을 메시/본에 베이크해 원본 프리팹 옆에 배율 이름으로 저장. 원본과 배율별 숨김 명세 보존.
+- Read/Write와 Legacy Blend Shape Normals 자동 활성화, 원본 머티리얼 자동 매핑.
+- Bip001 전용 `_Avatar.fbx`에서 Humanoid Avatar 생성 후 본체 FBX와 프리팹에 연결.
+- 원본 NiloToon 컨트롤러의 설정·활성화 상태·내부 참조를 생성 프리팹에 이관.
 
 ### 0.9.0
 - Asset Checker `10. Boneless SMR Fixer` 추가 — bones/bindposes 가 0개인 SkinnedMeshRenderer(FBX/VRM 익스포트 시 메시 소실)를 검출하고, 같은 부모·같은 로컬 트랜스폼에 `<이름>_Bone` 을 만들어 100% 스키닝.

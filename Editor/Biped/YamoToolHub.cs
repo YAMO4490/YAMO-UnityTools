@@ -17,7 +17,7 @@
 //   - FacialAnimationBaker, ForearmHingeBaker, AnimClipReducerWindow (Editor/Animation/)
 //
 // 탭 구성 (총 4개):
-//   1. Avatar Bake & Prefab — 세 파트 (Avatar Bake / Biped Converter / Biped Deconverter) 폴드아웃
+//   1. Avatar Bake & Prefab — 네 하위 탭 (Avatar Bake / Biped Converter / Biped Deconverter / Scale Bake)
 //   2. Material & Texture
 //   3. Asset Checker
 //   4. Animation
@@ -48,15 +48,28 @@ namespace YAMO.UnityTools.Editor
 
         [SerializeField] private Tab _activeTab = Tab.AvatarBakePrefab;
 
-        // Avatar Bake & Prefab 탭 내부의 세 파트별 폴드아웃 상태.
-        [SerializeField] private bool _bakePrefabPartFoldout       = true;
-        [SerializeField] private bool _bipedConverterPartFoldout   = true;
-        [SerializeField] private bool _bipedDeconverterPartFoldout = false;
-        private Vector2 _avatarBakeTabScroll;
+        private enum AvatarBakeTab
+        {
+            AvatarBakePrefab,
+            BipedConverter,
+            BipedDeconverter,
+            ScaleBakePrefab,
+        }
+
+        private static readonly string[] AvatarBakeTabLabels =
+        {
+            "1. Avatar Bake",
+            "2. Biped Converter",
+            "3. Biped Deconverter",
+            "4. Scale Bake",
+        };
+
+        [SerializeField] private AvatarBakeTab _activeAvatarBakeTab = AvatarBakeTab.AvatarBakePrefab;
 
         // 탭별 도구 인스턴스. 허브가 살아 있는 동안 상태를 유지.
         // BipedConverter / BipedDeconverter 는 AvatarBakePrefab 탭의 파트로 임베드.
         private AvatarBakePrefabWindow            _bakePrefabInstance;
+        private AvatarBakePrefabWindow            _scaleBakeInstance;
         private BipedConverterWindow              _bipedConverterInstance;
         private BipedDeconverterWindow            _bipedDeconverterInstance;
         private MaterialAndTextureCollectorWindow _materialTextureInstance;
@@ -94,6 +107,8 @@ namespace YAMO.UnityTools.Editor
         {
             if (_bakePrefabInstance == null)
                 _bakePrefabInstance = ScriptableObject.CreateInstance<AvatarBakePrefabWindow>();
+            if (_scaleBakeInstance == null)
+                _scaleBakeInstance = ScriptableObject.CreateInstance<AvatarBakePrefabWindow>();
             if (_bipedConverterInstance == null)
                 _bipedConverterInstance = ScriptableObject.CreateInstance<BipedConverterWindow>();
             if (_bipedDeconverterInstance == null)
@@ -107,6 +122,7 @@ namespace YAMO.UnityTools.Editor
         private void OnDisable()
         {
             if (_bakePrefabInstance != null)       DestroyImmediate(_bakePrefabInstance);
+            if (_scaleBakeInstance != null)        DestroyImmediate(_scaleBakeInstance);
             if (_bipedConverterInstance != null)   DestroyImmediate(_bipedConverterInstance);
             if (_bipedDeconverterInstance != null) DestroyImmediate(_bipedDeconverterInstance);
             if (_materialTextureInstance != null)  DestroyImmediate(_materialTextureInstance);
@@ -144,59 +160,44 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // Avatar Bake & Prefab tab — 세 파트 구성
+        // Avatar Bake & Prefab tab — 네 하위 탭 구성
         //   1. Avatar Bake & Prefab (원본 풀 파이프라인)
         //   2. Biped Converter (Humanoid → 3ds Max Biped 본 변환)
         //   3. Biped Deconverter (3ds Max Biped → Humanoid 역변환)
+        //   4. Scale Bake & Prefab (루트 배율 베이크 → 원본 프리팹 옆에 저장)
         // ============================================================
         private void DrawAvatarBakeTab()
         {
-            _avatarBakeTabScroll = EditorGUILayout.BeginScrollView(_avatarBakeTabScroll);
-
-            _bakePrefabPartFoldout = EditorGUILayout.Foldout(
-                _bakePrefabPartFoldout,
-                "1. Avatar Bake & Prefab",
-                toggleOnLabelClick: true,
-                EditorStyles.foldoutHeader);
-            if (_bakePrefabPartFoldout)
+            // 도구의 스크롤 바깥에 고정하여 긴 내용에서도 1~4번에 바로 접근한다.
+            int newIndex = GUILayout.Toolbar(
+                (int)_activeAvatarBakeTab, AvatarBakeTabLabels, GUILayout.Height(26));
+            if (newIndex != (int)_activeAvatarBakeTab)
             {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
-                    if (_bakePrefabInstance != null) _bakePrefabInstance.DrawGUI();
-                }
+                _activeAvatarBakeTab = (AvatarBakeTab)newIndex;
+                GUI.FocusControl(null);
+                GUIUtility.ExitGUI();
             }
 
-            EditorGUILayout.Space(8);
-
-            _bipedConverterPartFoldout = EditorGUILayout.Foldout(
-                _bipedConverterPartFoldout,
-                "2. Biped Converter",
-                toggleOnLabelClick: true,
-                EditorStyles.foldoutHeader);
-            if (_bipedConverterPartFoldout)
+            EditorGUILayout.Space(4);
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox, GUILayout.ExpandHeight(true)))
             {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+                // 각 도구가 전체 내용의 스크롤과 입력 상태를 별도로 유지한다.
+                switch (_activeAvatarBakeTab)
                 {
-                    if (_bipedConverterInstance != null) _bipedConverterInstance.DrawGUI();
+                    case AvatarBakeTab.AvatarBakePrefab:
+                        if (_bakePrefabInstance != null) _bakePrefabInstance.DrawGUI();
+                        break;
+                    case AvatarBakeTab.BipedConverter:
+                        if (_bipedConverterInstance != null) _bipedConverterInstance.DrawGUI();
+                        break;
+                    case AvatarBakeTab.BipedDeconverter:
+                        if (_bipedDeconverterInstance != null) _bipedDeconverterInstance.DrawGUI();
+                        break;
+                    case AvatarBakeTab.ScaleBakePrefab:
+                        if (_scaleBakeInstance != null) _scaleBakeInstance.DrawGUI(scaleBake: true);
+                        break;
                 }
             }
-
-            EditorGUILayout.Space(8);
-
-            _bipedDeconverterPartFoldout = EditorGUILayout.Foldout(
-                _bipedDeconverterPartFoldout,
-                "3. Biped Deconverter",
-                toggleOnLabelClick: true,
-                EditorStyles.foldoutHeader);
-            if (_bipedDeconverterPartFoldout)
-            {
-                using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
-                {
-                    if (_bipedDeconverterInstance != null) _bipedDeconverterInstance.DrawGUI();
-                }
-            }
-
-            EditorGUILayout.EndScrollView();
         }
 
         // ============================================================

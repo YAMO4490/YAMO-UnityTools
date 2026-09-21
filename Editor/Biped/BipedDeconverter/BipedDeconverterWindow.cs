@@ -22,6 +22,7 @@ namespace YAMO.UnityTools.Editor
 
         public void DrawGUI()
         {
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
             EditorGUILayout.Space(8);
             EditorGUILayout.LabelField("Biped → Unity 휴머노이드 역변환", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
@@ -62,10 +63,9 @@ namespace YAMO.UnityTools.Editor
             }
             else
             {
-                _scroll = EditorGUILayout.BeginScrollView(_scroll);
                 EditorGUILayout.HelpBox(_resultText, _resultLevel);
-                EditorGUILayout.EndScrollView();
             }
+            EditorGUILayout.EndScrollView();
         }
 
         void RunValidate()

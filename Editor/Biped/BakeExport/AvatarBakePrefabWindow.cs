@@ -19,6 +19,8 @@ namespace YAMO.UnityTools.Editor
         private GameObject _source;
         private string _fbxProjectPath = "";
         private string _prefabProjectPath = "";
+        private bool _scaleBake;
+        private string _scaleBakeError;
 
         // ---- Avatar mode ----
         private AvatarMode _avatarMode = AvatarMode.Auto;
@@ -39,7 +41,6 @@ namespace YAMO.UnityTools.Editor
         private bool _zeroBlendShapesBeforeBake  = true;
         private bool _restoreSourceAfterBake     = true;
         private bool _updateWhenOffscreenInPrefab = true;
-        private bool _materialImportNone         = false;  // 기본 OFF: 슬롯 갯수/이름 보존
         private bool _verboseDiagnostics = false;          // 메시 매핑 디버그 로그
         private string _lastLogFilePath = null;            // 가장 최근 실행 로그 파일 경로 (UI 표시용)
 
@@ -73,13 +74,19 @@ namespace YAMO.UnityTools.Editor
         /// <summary>
         /// 외부(예: Tool Hub) 에서 호출해 임베드할 수 있는 GUI 본체.
         /// </summary>
-        public void DrawGUI()
+        public void DrawGUI(bool scaleBake = false)
         {
+            _scaleBake = scaleBake;
             _windowScroll = EditorGUILayout.BeginScrollView(_windowScroll);
 
-            EditorGUILayout.LabelField("Avatar Bake → Prefab Pipeline", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(scaleBake ? "Scale Bake → Prefab Pipeline" : "Avatar Bake → Prefab Pipeline", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "원본 아바타를 정규화 베이크해 FBX로 추출한 뒤, 다시 임포트하여 " +
+                scaleBake
+                    ? "씬의 아바타 프리팹 루트 Scale을 조절한 뒤 Avatar Root에 지정하세요.\n" +
+                      "현재 배율을 메시와 본에 베이크하고, 기존 Avatar Bake & Prefab 과정을 실행합니다.\n" +
+                      "원본 프리팹과 같은 폴더에 원본이름_scale_0.9.fbx / .prefab 형식으로 저장합니다.\n" +
+                      "복사본으로 작업하므로 원본은 유지되며, 결과물의 루트 Scale은 (1, 1, 1)입니다."
+                    : "원본 아바타를 정규화 베이크해 FBX로 추출한 뒤, 다시 임포트하여 " +
                 "원본의 On/Off · BlendShape · 물리 · Constraint 값을 입혀 프리팹으로 저장합니다.\n\n" +
                 "원본 GameObject 는 임시로 모든 노드가 활성화 상태로 변경되며, " +
                 "비교/복원용 snapshot 이 씬에 함께 생성됩니다.",
@@ -88,18 +95,46 @@ namespace YAMO.UnityTools.Editor
             // ---- 입력 ----
             EditorGUILayout.Space();
             _source = (GameObject)EditorGUILayout.ObjectField("Avatar Root", _source, typeof(GameObject), true);
+            if (scaleBake && GUILayout.Button("Use Selected Avatar"))
+                _source = Selection.activeGameObject;
 
             // 경로가 비어 있고 source 가 지정되면 기본값 자동 채우기.
             // 사용자가 직접 입력한 값은 보존; 비우면 다시 기본값으로 회복.
-            AutoFillDefaultPaths();
+            if (scaleBake)
+            {
+                AvatarScaleBakeUtility.TryGetOutputPaths(_source, out _fbxProjectPath,
+                    out _prefabProjectPath, out _scaleBakeError);
+                if (_source != null)
+                {
+                    using (new EditorGUI.DisabledScope(true))
+                        EditorGUILayout.Vector3Field("Root Scale", _source.transform.localScale);
+                }
+                if (!string.IsNullOrEmpty(_scaleBakeError))
+                    EditorGUILayout.HelpBox(_scaleBakeError, MessageType.Info);
+            }
+            else
+                AutoFillDefaultPaths();
 
             DrawPreBakeUtilities();
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Output", EditorStyles.boldLabel);
 
-            DrawPathField("FBX Path",    ref _fbxProjectPath,    "fbx",    DefaultBaseName());
-            DrawPathField("Prefab Path", ref _prefabProjectPath, "prefab", DefaultBaseName());
+            using (new EditorGUI.DisabledScope(scaleBake))
+            {
+                DrawPathField("FBX Path",    ref _fbxProjectPath,    "fbx",    DefaultBaseName());
+                DrawPathField("Prefab Path", ref _prefabProjectPath, "prefab", DefaultBaseName());
+            }
+
+            if (_avatarMode != AvatarMode.Generic && AvatarBakeFbxSetup.HasBipedSkeleton(_source))
+            {
+                using (new EditorGUI.DisabledScope(true))
+                    EditorGUILayout.TextField("Avatar FBX", AvatarBakeFbxSetup.GetAvatarFbxPath(_fbxProjectPath));
+            }
+            EditorGUILayout.HelpBox(
+                "FBX: Read/Write · Legacy Blend Shape Normals 활성화, 원본 머티리얼 자동 매핑.\n" +
+                "Bip001 본이 있으면 별도 _Avatar.fbx에서 Humanoid Avatar를 생성하고 본체 FBX와 프리팹에 연결합니다. (Generic 모드 제외)",
+                MessageType.Info);
 
             // ---- Avatar mode ----
             EditorGUILayout.Space();
@@ -138,7 +173,6 @@ namespace YAMO.UnityTools.Editor
             _zeroBlendShapesBeforeBake  = EditorGUILayout.Toggle("Zero BlendShapes Before Bake", _zeroBlendShapesBeforeBake);
             _restoreSourceAfterBake     = EditorGUILayout.Toggle("Restore Source After Bake",    _restoreSourceAfterBake);
             _updateWhenOffscreenInPrefab = EditorGUILayout.Toggle("Update When Offscreen (Prefab)", _updateWhenOffscreenInPrefab);
-            _materialImportNone         = EditorGUILayout.Toggle("Material Import: None",        _materialImportNone);
             _verboseDiagnostics = EditorGUILayout.Toggle(
                 new GUIContent("Verbose Diagnostics (debug logs)",
                     "각 단계 (source / normalized / FBX 임포트 직후 / 8.5 직후 / prefab 저장 후) 의 " +
@@ -150,7 +184,7 @@ namespace YAMO.UnityTools.Editor
             EditorGUILayout.Space();
             using (new EditorGUI.DisabledScope(!CanRun()))
             {
-                if (GUILayout.Button("Run Full Pipeline", GUILayout.Height(36)))
+                if (GUILayout.Button(scaleBake ? "Bake Scale & Save Prefab" : "Run Full Pipeline", GUILayout.Height(36)))
                 {
                     Run();
                 }
@@ -381,13 +415,26 @@ namespace YAMO.UnityTools.Editor
 
         private void Run()
         {
+            // 실행 직전에도 현재 루트 배율과 프리팹 연결을 다시 확인한다.
+            if (_scaleBake && !AvatarScaleBakeUtility.TryGetOutputPaths(_source,
+                    out _fbxProjectPath, out _prefabProjectPath, out _scaleBakeError))
+            {
+                Log(_scaleBakeError);
+                return;
+            }
+
+            var avatarFbxPath = _avatarMode != AvatarMode.Generic && AvatarBakeFbxSetup.HasBipedSkeleton(_source)
+                ? AvatarBakeFbxSetup.GetAvatarFbxPath(_fbxProjectPath) : null;
+
             // 덮어쓰기 경고
             if (File.Exists(ProjectRelativeToAbsolute(_fbxProjectPath))
-                || File.Exists(ProjectRelativeToAbsolute(_prefabProjectPath)))
+                || File.Exists(ProjectRelativeToAbsolute(_prefabProjectPath))
+                || (!string.IsNullOrEmpty(avatarFbxPath) && File.Exists(ProjectRelativeToAbsolute(avatarFbxPath))))
             {
                 if (!EditorUtility.DisplayDialog(
                     "Overwrite Existing Files?",
-                    $"기존 파일을 덮어씁니다.\n\nFBX:    {_fbxProjectPath}\nPrefab: {_prefabProjectPath}\n\n계속하시겠습니까?",
+                    $"기존 파일을 덮어씁니다.\n\nFBX:    {_fbxProjectPath}\nPrefab: {_prefabProjectPath}" +
+                    (avatarFbxPath != null ? $"\nAvatar FBX: {avatarFbxPath}" : "") + "\n\n계속하시겠습니까?",
                     "Overwrite",
                     "Cancel"))
                 {
@@ -426,7 +473,6 @@ namespace YAMO.UnityTools.Editor
                 ZeroBlendShapesBeforeBake  = _zeroBlendShapesBeforeBake,
                 RestoreSourceAfterBake     = _restoreSourceAfterBake,
                 UpdateWhenOffscreenInPrefab = _updateWhenOffscreenInPrefab,
-                MaterialImportNone         = _materialImportNone,
                 VerboseDiagnostics         = _verboseDiagnostics,
                 LogFilePath                = logFilePath,
                 Log = new WindowLog(this),
@@ -435,7 +481,7 @@ namespace YAMO.UnityTools.Editor
             bool ok;
             try
             {
-                ok = AvatarBakePipeline.Run(opt);
+                ok = _scaleBake ? AvatarScaleBakeUtility.Run(opt) : AvatarBakePipeline.Run(opt);
             }
             catch (System.Exception e)
             {

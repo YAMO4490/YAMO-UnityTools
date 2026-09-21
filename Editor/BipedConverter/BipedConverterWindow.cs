@@ -57,6 +57,7 @@ namespace YAMO.UnityTools.Editor
 
         public void DrawGUI()
         {
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
             EditorGUILayout.Space(8);
             EditorGUILayout.LabelField("원본 Armature 루트", EditorStyles.boldLabel);
 
@@ -152,10 +153,9 @@ namespace YAMO.UnityTools.Editor
             }
             else
             {
-                _scroll = EditorGUILayout.BeginScrollView(_scroll);
                 EditorGUILayout.HelpBox(_resultText, _resultLevel);
-                EditorGUILayout.EndScrollView();
             }
+            EditorGUILayout.EndScrollView();
         }
 
         void OpenTemplatePicker()

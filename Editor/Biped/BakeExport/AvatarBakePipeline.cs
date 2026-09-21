@@ -37,6 +37,7 @@ namespace YAMO.UnityTools.Editor
         public GameObject Source;
         public string FbxProjectPath;       // "Assets/..." 형태(프로젝트 상대경로)
         public string PrefabProjectPath;    // "Assets/..." 형태
+        public string HiddenObjectsDocumentName = "YAMO_HiddenObjects.md";
 
         // ---- Avatar 모드 ----
         public AvatarMode AvatarMode = AvatarMode.Auto;
@@ -65,12 +66,6 @@ namespace YAMO.UnityTools.Editor
                                                       // snapshot 기준으로 되돌림 (사용자 원본 보호)
         public bool UpdateWhenOffscreenInPrefab = true; // Prefab 의 모든 SkinnedMeshRenderer 에
                                                         // updateWhenOffscreen = true 적용
-        public bool MaterialImportNone      = false;  // ModelImporter.materialImportMode = None
-                                                      // 기본 false: Unity 기본 동작으로 슬롯 갯수/이름 보존,
-                                                      // 외부 머티리얼 도구가 슬롯 이름 매칭으로 머티리얼 부착.
-                                                      // true 로 하면 슬롯이 빈 상태로 임포트되며 슬롯 이름이
-                                                      // 사라질 가능성이 있음.
-
         public bool VerboseDiagnostics = false;
         // 각 단계에서 SkinnedMeshRenderer 인벤토리 (GO 경로, sharedMesh 이름·vertex count·instance ID)
         // 를 로그로 출력. 메시 매핑이 꼬이는 문제를 진단할 때 사용.
@@ -142,6 +137,7 @@ namespace YAMO.UnityTools.Editor
             GameObject snapshot = null;
             GameObject normalized = null;
             GameObject targetInstance = null;
+            Avatar bipedAvatar = null;
 
             const string PB_TITLE = "Avatar Bake & Prefab";
 
@@ -227,6 +223,15 @@ namespace YAMO.UnityTools.Editor
                     return false;
                 }
 
+                // 동일한 베이크 결과에서 Bip001 본만 별도 추출하여 Avatar를 만든다.
+                // 메시 FBX는 이 Avatar를 Copy From Other Avatar로 참조한다.
+                if (opt.AvatarMode != AvatarMode.Generic && AvatarBakeFbxSetup.HasBipedSkeleton(opt.Source))
+                {
+                    EditorUtility.DisplayProgressBar(PB_TITLE, "Creating Bip001 Avatar FBX...", 0.65f);
+                    bipedAvatar = AvatarBakeFbxSetup.ExportBipedAvatar(normalized, opt.Source,
+                        AvatarBakeFbxSetup.GetAvatarFbxPath(opt.FbxProjectPath), exportOptions, log);
+                }
+
                 // 정규화 임시 GO 즉시 정리
                 if (opt.VerboseDiagnostics)
                 {
@@ -247,7 +252,7 @@ namespace YAMO.UnityTools.Editor
                 // ---------------- 7) Import + ModelImporter 설정 ----------------
                 EditorUtility.DisplayProgressBar(PB_TITLE, "Importing FBX...", 0.82f);
                 AssetDatabase.ImportAsset(opt.FbxProjectPath, ImportAssetOptions.ForceSynchronousImport);
-                ConfigureModelImporter(opt.FbxProjectPath, resolvedMode, opt.MaterialImportNone, log);
+                AvatarBakeFbxSetup.ConfigureMainFbx(opt.FbxProjectPath, resolvedMode, snapshot, bipedAvatar, log);
 
                 // ---------------- 8) Instantiate FBX ----------------
                 EditorUtility.DisplayProgressBar(PB_TITLE, "Instantiating prefab...", 0.88f);
@@ -264,6 +269,12 @@ namespace YAMO.UnityTools.Editor
                     return false;
                 }
                 targetInstance.name = Path.GetFileNameWithoutExtension(opt.PrefabProjectPath);
+                if (bipedAvatar != null)
+                {
+                    var animator = targetInstance.GetComponent<Animator>();
+                    if (animator == null) animator = targetInstance.AddComponent<Animator>();
+                    animator.avatar = bipedAvatar;
+                }
                 // source 옆에 같은 부모 아래 배치
                 targetInstance.transform.SetParent(opt.Source.transform.parent, true);
 
@@ -311,6 +322,9 @@ namespace YAMO.UnityTools.Editor
                 {
                     AvatarMigrationCore.MigrateConstraints(snapshot.transform, boneMap, log);
                 }
+
+                // 원본에 있는 NiloToon 컨트롤러만 설정/내부 참조와 함께 복사한다.
+                AvatarBakeComponentMigration.MigrateNiloControllers(snapshot, boneMap, log);
 
                 // ---------------- 10.5) (옵션) updateWhenOffscreen ----------------
                 if (opt.UpdateWhenOffscreenInPrefab)
@@ -372,6 +386,11 @@ namespace YAMO.UnityTools.Editor
                 // 정규화 임시는 항상 정리.
                 // snapshot/targetInstance 는 성공 경로에서 step 12 가 정리.
                 // 실패 경로에서는 사용자 디버깅을 위해 의도적으로 남겨 둔다.
+                if (opt.RestoreSourceAfterBake && snapshot != null && opt.Source != null)
+                {
+                    RestoreActiveStatesFromSnapshot(opt.Source.transform, snapshot.transform);
+                    RestoreBlendShapeWeightsFromSnapshot(opt.Source, snapshot);
+                }
                 if (normalized != null) Object.DestroyImmediate(normalized);
                 EditorUtility.ClearProgressBar();
             }
@@ -623,7 +642,7 @@ namespace YAMO.UnityTools.Editor
             try
             {
                 string dir = System.IO.Path.GetDirectoryName(opt.PrefabProjectPath).Replace('\\', '/');
-                string assetPath = dir + "/" + HiddenObjectsDocFileName;
+                string assetPath = dir + "/" + opt.HiddenObjectsDocumentName;
                 string prefabName = System.IO.Path.GetFileNameWithoutExtension(opt.PrefabProjectPath);
 
                 var all = root.GetComponentsInChildren<Transform>(true);
@@ -875,29 +894,6 @@ namespace YAMO.UnityTools.Editor
         {
             if (dst.GetComponent<Animator>() == null) dst.AddComponent<Animator>();
             return AvatarBuilder.BuildGenericAvatar(dst, "");
-        }
-
-        private static void ConfigureModelImporter(string fbxProjectPath, AvatarMode mode, bool materialNone, IMigrationLog log)
-        {
-            var importer = AssetImporter.GetAtPath(fbxProjectPath) as ModelImporter;
-            if (importer == null)
-            {
-                log.Warning($"ModelImporter not found at {fbxProjectPath}; skipping configure.");
-                return;
-            }
-
-            importer.animationType = (mode == AvatarMode.Humanoid)
-                ? ModelImporterAnimationType.Human
-                : ModelImporterAnimationType.Generic;
-            importer.importBlendShapes = true;
-
-            // materialImportMode 는 명시적 요청 시에만 None 으로. 기본값은 Unity 기본 동작
-            // (슬롯 갯수/이름 보존, 머티리얼 자동 부착 시도)을 유지.
-            if (materialNone)
-            {
-                importer.materialImportMode = ModelImporterMaterialImportMode.None;
-            }
-            importer.SaveAndReimport();
         }
 
         // ---- path utilities ----
