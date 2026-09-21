@@ -9,7 +9,7 @@
 | 항목 | 내용 |
 |---|---|
 | 이름 | `com.yamo.unitytools` |
-| 버전 | 0.10.0 (Scale Bake, Avatar 전용 FBX, NiloToon 컨트롤러 이관) |
+| 버전 | 0.10.1 (AssetChecker 하위 탭 및 탭별 번호) |
 | 대상 | Unity 2021.3 이상. Runtime 부분은 빌드에 포함, Editor 부분은 에디터 전용 |
 | 어셈블리 | 4개 — Runtime / Editor (코어) / Physics.Editor / Biped.Editor |
 | 메뉴 루트 | `Tools/YAMO/...` |
@@ -66,7 +66,7 @@ Packages/com.yamo.unitytools/
     │       └── YamoBoneNormalizer.cs               ← UniGLTF BoneNormalizer fork + 회전 보존 옵션
     ├── Bones/
     │   ├── HumanBoneRenamer.cs                     ← Tools/YAMO/Bones/Human Bone Renamer
-    │   ├── YamoAssetChecker.cs                     ← Tools/YAMO/Bones/YAMO Asset Checker (5섹션 통합)
+    │   ├── YamoAssetChecker.cs                     ← Tools/YAMO/Bones/YAMO Asset Checker (3개 하위 탭·10섹션)
     │   └── YamoAssetCheckerCore.cs                 ← Asset Checker 코어 정적 헬퍼
     ├── Camera/
     │   ├── CameraCompositionWindow.cs              ← Tools/YAMO/Camera/Composition Overlay
@@ -267,17 +267,22 @@ Packages/com.yamo.unitytools/
 - 3ds Max Biped 매핑 (`bipedMapping`), Mixamo 등 자동 인식.
 
 #### `Bones/YamoAssetChecker.cs` — `Tools/YAMO/Bones/YAMO Asset Checker`
-**5 섹션 통합** (foldout). 이전의 `ObjectNameModifier` / `MissingScriptRemover` / `FindMissingBones` / `FindUnusedBones` 가 모두 흡수됨.
+**3개 하위 탭·10개 섹션**. 이전의 `ObjectNameModifier` / `MissingScriptRemover` / `FindMissingBones` / `FindUnusedBones` 가 모두 흡수됨.
+
+- **네이밍 도구**: 1번 Object Name Tools, 2번 Duplicate Names.
+- **검사도구**: 1번 Missing / Disabled Scripts, 2번 Smart Empty Object Cleaner, 3번 Inactive Object Finder, 4번 Boneless SMR Fixer.
+- **부가 도구**: 1번 Unused Bones, 2번 Missing Bones, 3번 Humanoid Bone Extractor, 4번 Magica Collider Symmetry Fixer.
+- 하위 탭 버튼은 스크롤 바깥에 고정하며, 각 분류의 스크롤 위치와 도구 입력/결과를 유지한다. 섹션 번호는 각 탭에서 1부터 시작하며, 폴드아웃은 유지한다. Hub와 독립 창에 동일하게 적용된다.
 
 | 섹션 | 기능 |
 |---|---|
-| 1. Object Name Tools | Prefix/Suffix, Remove first/last char, Spaces→Underscore, Sort children, Humanoid scale check (Selection 기반) |
-| 2. Duplicate Names | 트리 내 중복 이름 검출 + 자동 리네임 (`_1`, `_2`...) |
-| 3. Unused Bones | 어떤 SMR 도 참조 안 하는 Transform 검출 + Selection 으로 추가. 부분문자열 / Magica / VRMSpringBone 컴포넌트 제외 옵션 |
-| 4. Missing / Disabled Scripts | Missing MonoBehaviour 카운트/제거, Disabled MonoBehaviour 제거 |
-| 5. Missing Bones (SMR) | 씬/Selection 의 SkinnedMeshRenderer 의 `bones[i] == null` 또는 rootBone null 검출 |
-| 9. Magica Collider Symmetry Fixer | Biped 변환 아바타에서 MagicaCloth2 콜라이더의 Automatic 시메트리가 반대편 본을 못 찾는 문제 수정 — 팔/다리 Primary 본 아래 콜라이더 중 Symmetry Target 이 비었거나 Biped 본인 것을 찾아 `X_Symmetry` + 반대편 Primary 본으로 설정(SerializedObject 접근, MagicaCloth2 하드 참조 없음). API: `ScanMagicaSymmetryTargets`, `FixMagicaSymmetryTargets` |
-| 10. Boneless SMR Fixer | bones/bindposes 가 0개인 SMR(블렌드셰이프만 있는 소품 등 — FBX/VRM 익스포트 시 메시 소실) 검출. FIX: SMR 과 같은 부모·같은 로컬 트랜스폼에 `<이름>_Bone` 생성 + 100% 스키닝한 메시 사본(`<메시>_Skinned.asset`, 원본 메시 옆)으로 교체. API: `ScanBonelessSmrsInScene/Children`, `FixBonelessSmrs` |
+| 네이밍 도구 1. Object Name Tools | Prefix/Suffix, Remove first/last char, Spaces→Underscore, Sort children, Humanoid scale check (Selection 기반) |
+| 네이밍 도구 2. Duplicate Names | 트리 내 중복 이름 검출 + 자동 리네임 (`_1`, `_2`...) |
+| 부가 도구 1. Unused Bones | 어떤 SMR 도 참조 안 하는 Transform 검출 + Selection 으로 추가. 부분문자열 / Magica / VRMSpringBone 컴포넌트 제외 옵션 |
+| 검사도구 1. Missing / Disabled Scripts | Missing MonoBehaviour 카운트/제거, Disabled MonoBehaviour 제거 |
+| 부가 도구 2. Missing Bones (SMR) | 씬/Selection 의 SkinnedMeshRenderer 의 `bones[i] == null` 또는 rootBone null 검출 |
+| 부가 도구 4. Magica Collider Symmetry Fixer | Biped 변환 아바타에서 MagicaCloth2 콜라이더의 Automatic 시메트리가 반대편 본을 못 찾는 문제 수정 — 팔/다리 Primary 본 아래 콜라이더 중 Symmetry Target 이 비었거나 Biped 본인 것을 찾아 `X_Symmetry` + 반대편 Primary 본으로 설정(SerializedObject 접근, MagicaCloth2 하드 참조 없음). API: `ScanMagicaSymmetryTargets`, `FixMagicaSymmetryTargets` |
+| 검사도구 4. Boneless SMR Fixer | bones/bindposes 가 0개인 SMR(블렌드셰이프만 있는 소품 등 — FBX/VRM 익스포트 시 메시 소실) 검출. FIX: SMR 과 같은 부모·같은 로컬 트랜스폼에 `<이름>_Bone` 생성 + 100% 스키닝한 메시 사본(`<메시>_Skinned.asset`, 원본 메시 옆)으로 교체. API: `ScanBonelessSmrsInScene/Children`, `FixBonelessSmrs` |
 
 #### `Bones/YamoAssetCheckerCore.cs`
 - 위 5 섹션이 호출하는 정적 헬퍼 모음 (UI 무관 순수 로직).

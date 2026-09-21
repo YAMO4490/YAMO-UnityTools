@@ -1,16 +1,17 @@
 // YamoAssetChecker — 아바타/씬 자산을 점검·정리하는 통합 EditorWindow.
 //
-// 섹션 구성 (각 섹션은 폴드아웃):
-//   1) Object Name Tools        — 일괄 이름 변경, 자식 정렬, 휴머노이드 스케일 점검
-//   2) Duplicate Names          — 중복 이름 검출 + 자동 리네임
-//   3) Unused Bones             — 사용되지 않는 본 검출 (선택 객체 하위)
-//   4) Missing / Disabled Scripts — 미싱·비활성 MonoBehaviour 정리
-//   5) Missing Bones            — SkinnedMeshRenderer.bones 의 null 검사
-//   6) Humanoid Bone Extractor  — 아바타 복제 후 휴머노이드 본만 남겨 스켈레톤 추출
-//   7) Smart Empty Object Cleaner — SMR 미참조 빈 오브젝트 정리
-//   8) Inactive Object Finder   — 비활성 오브젝트 탐색
-//   9) Magica Collider Symmetry Fixer — Biped 아바타의 빈 Symmetry Target 을 반대편 Primary 본으로 지정
-//  10) Boneless SMR Fixer       — 본이 없는 SMR(익스포트 시 소실) 검출 + 본 생성·100% 스키닝
+// 하위 탭: 네이밍 도구 (1–2) / 검사도구 (1–4) / 부가 도구 (1–4).
+// 각 탭에서 번호를 1부터 시작하며, 각 섹션의 폴드아웃을 유지한다.
+//   네이밍 도구 1) Object Name Tools        — 일괄 이름 변경, 자식 정렬, 휴머노이드 스케일 점검
+//   네이밍 도구 2) Duplicate Names          — 중복 이름 검출 + 자동 리네임
+//   부가 도구 1) Unused Bones             — 사용되지 않는 본 검출 (선택 객체 하위)
+//   검사도구 1) Missing / Disabled Scripts — 미싱·비활성 MonoBehaviour 정리
+//   부가 도구 2) Missing Bones            — SkinnedMeshRenderer.bones 의 null 검사
+//   부가 도구 3) Humanoid Bone Extractor  — 아바타 복제 후 휴머노이드 본만 남겨 스켈레톤 추출
+//   검사도구 2) Smart Empty Object Cleaner — SMR 미참조 빈 오브젝트 정리
+//   검사도구 3) Inactive Object Finder   — 비활성 오브젝트 탐색
+//   부가 도구 4) Magica Collider Symmetry Fixer — Biped 아바타의 빈 Symmetry Target 을 반대편 Primary 본으로 지정
+//   검사도구 4) Boneless SMR Fixer       — 본이 없는 SMR(익스포트 시 소실) 검출 + 본 생성·100% 스키닝
 //
 // 코어 로직은 YamoAssetCheckerCore.cs 의 정적 메서드를 호출.
 // 이 파일은 UI / 상태 관리 / 결과 표시만 담당.
@@ -23,8 +24,23 @@ namespace YAMO.UnityTools.Editor
 {
     public class YamoAssetChecker : EditorWindow
     {
-        // ---- 윈도우 전체 스크롤 ----
-        private Vector2 _windowScroll;
+        private enum ToolCategory
+        {
+            Naming,
+            Inspection,
+            Additional,
+        }
+
+        private static readonly string[] CategoryLabels =
+        {
+            "네이밍 도구",
+            "검사도구",
+            "부가 도구",
+        };
+
+        [SerializeField] private ToolCategory _activeCategory = ToolCategory.Naming;
+        // 탭 버튼은 고정하고, 각 분류의 스크롤 위치는 독립적으로 유지한다.
+        private readonly Vector2[] _categoryScroll = new Vector2[3];
 
         // ---- 섹션 폴드아웃 상태 ----
         private bool _foldNameTools         = true;
@@ -34,40 +50,40 @@ namespace YAMO.UnityTools.Editor
         private bool _foldMissingBones      = true;
         private bool _foldHumanoidExtractor = true;
 
-        // ---- 섹션 1: Object Name Tools ----
+        // ---- 네이밍 도구 1: Object Name Tools ----
         private string _prefixText = "";
         private string _suffixText = "";
         private List<Transform> _invalidScaleBones = new List<Transform>();
         private Vector2 _invalidScaleScroll;
         private bool _invalidScaleSearched = false;
 
-        // ---- 섹션 2: Duplicate Names ----
+        // ---- 네이밍 도구 2: Duplicate Names ----
         private GameObject _duplicateRoot;
         private Dictionary<string, List<Transform>> _duplicateGroups = new Dictionary<string, List<Transform>>();
         private Vector2 _duplicateScroll;
         private bool _duplicateSearched = false;
 
-        // ---- 섹션 3: Unused Bones ----
+        // ---- 부가 도구 1: Unused Bones ----
         private List<string> _excludeStrings = new List<string>();
         private bool _excludeMagicaColliders = true;
         private bool _excludeVRMSpringBones  = true;
 
-        // ---- 섹션 4: Missing / Disabled Scripts ----
+        // ---- 검사도구 1: Missing / Disabled Scripts ----
         private GameObject _scriptTargetObject;
 
-        // ---- 섹션 5: Missing Bones ----
+        // ---- 부가 도구 2: Missing Bones ----
         private List<YamoAssetCheckerCore.MissingBoneResult> _missingBoneResults = new List<YamoAssetCheckerCore.MissingBoneResult>();
         private Vector2 _missingBoneScroll;
         private bool _missingBoneSearched = false;
 
-        // ---- 섹션 6: Humanoid Bone Extractor ----
+        // ---- 부가 도구 3: Humanoid Bone Extractor ----
         // EditorWindow 인스턴스를 임베드해 자체 상태(소스/매핑)를 보유.
         private HumanoidBoneExtractorWindow _humanoidExtractorInstance;
 
-        // ---- 섹션 7: Smart Empty Object Cleaner ----
+        // ---- 검사도구 2: Smart Empty Object Cleaner ----
         private bool _foldEmptyCleaner = true;
 
-        // ---- 섹션 8: Inactive Object Finder ----
+        // ---- 검사도구 3: Inactive Object Finder ----
         private bool _foldInactiveObjects = true;
         private GameObject _inactiveFinderRoot;
         private List<GameObject> _inactiveObjects = new List<GameObject>();
@@ -80,14 +96,14 @@ namespace YAMO.UnityTools.Editor
         private Vector2 _stage1Scroll;
         private Vector2 _stage2Scroll;
 
-        // ---- 섹션 9: Magica Collider Symmetry Fixer ----
+        // ---- 부가 도구 4: Magica Collider Symmetry Fixer ----
         private bool _foldMagicaSymmetry = true;
         private GameObject _magicaSymmetryRoot;
         private List<YamoAssetCheckerCore.MagicaSymmetryEntry> _magicaSymmetryEntries = new List<YamoAssetCheckerCore.MagicaSymmetryEntry>();
         private bool _magicaSymmetryScanned = false;
         private Vector2 _magicaSymmetryScroll;
 
-        // ---- 섹션 10: Boneless SMR Fixer ----
+        // ---- 검사도구 4: Boneless SMR Fixer ----
         private bool _foldBonelessSmr = true;
         private GameObject _bonelessSmrScanSelection;   // null = 씬 전체 스캔
         private List<YamoAssetCheckerCore.BonelessSmrEntry> _bonelessSmrEntries = new List<YamoAssetCheckerCore.BonelessSmrEntry>();
@@ -121,29 +137,49 @@ namespace YAMO.UnityTools.Editor
         /// </summary>
         public void DrawGUI()
         {
-            _windowScroll = EditorGUILayout.BeginScrollView(_windowScroll);
-
             EditorGUILayout.LabelField("YAMO Asset Checker", EditorStyles.boldLabel);
+            int newIndex = GUILayout.Toolbar(
+                (int)_activeCategory, CategoryLabels, GUILayout.Height(26));
+            if (newIndex != (int)_activeCategory)
+            {
+                _activeCategory = (ToolCategory)newIndex;
+                GUI.FocusControl(null);
+                GUIUtility.ExitGUI();
+            }
+
+            EditorGUILayout.Space(4);
+            int categoryIndex = (int)_activeCategory;
+            _categoryScroll[categoryIndex] = EditorGUILayout.BeginScrollView(_categoryScroll[categoryIndex]);
+
             EditorGUILayout.HelpBox(
-                "아바타/씬의 이름·본·스크립트 상태를 점검하고 정리합니다.\n각 섹션을 펼쳐서 사용하세요.",
+                "아바타/씬의 이름·본·스크립트 상태를 점검하고 정리합니다.\n선택한 분류의 섹션을 펼쳐서 사용하세요.",
                 MessageType.Info);
 
-            DrawNameToolsSection();
-            DrawDuplicatesSection();
-            DrawUnusedBonesSection();
-            DrawMissingScriptsSection();
-            DrawMissingBonesSection();
-            DrawHumanoidExtractorSection();
-            DrawSmartEmptyCleanerSection();
-            DrawInactiveObjectsSection();
-            DrawMagicaSymmetrySection();
-            DrawBonelessSmrSection();
+            switch (_activeCategory)
+            {
+                case ToolCategory.Naming:
+                    DrawNameToolsSection();            // 1
+                    DrawDuplicatesSection();           // 2
+                    break;
+                case ToolCategory.Inspection:
+                    DrawMissingScriptsSection();       // 1
+                    DrawSmartEmptyCleanerSection();    // 2
+                    DrawInactiveObjectsSection();      // 3
+                    DrawBonelessSmrSection();           // 4
+                    break;
+                case ToolCategory.Additional:
+                    DrawUnusedBonesSection();          // 1
+                    DrawMissingBonesSection();         // 2
+                    DrawHumanoidExtractorSection();    // 3
+                    DrawMagicaSymmetrySection();        // 4
+                    break;
+            }
 
             EditorGUILayout.EndScrollView();
         }
 
         // ============================================================
-        // 섹션 1: Object Name Tools
+        // 네이밍 도구 1: Object Name Tools
         // ============================================================
         private void DrawNameToolsSection()
         {
@@ -227,7 +263,7 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 섹션 2: Duplicate Names
+        // 네이밍 도구 2: Duplicate Names
         // ============================================================
         private void DrawDuplicatesSection()
         {
@@ -278,12 +314,12 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 섹션 3: Unused Bones
+        // 부가 도구 1: Unused Bones
         // ============================================================
         private void DrawUnusedBonesSection()
         {
             DrawSeparator();
-            _foldUnusedBones = EditorGUILayout.Foldout(_foldUnusedBones, "3. Unused Bones  (Selection 기반)", true, EditorStyles.foldoutHeader);
+            _foldUnusedBones = EditorGUILayout.Foldout(_foldUnusedBones, "1. Unused Bones  (Selection 기반)", true, EditorStyles.foldoutHeader);
             if (!_foldUnusedBones) return;
 
             EditorGUI.indentLevel++;
@@ -337,12 +373,12 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 섹션 4: Missing / Disabled Scripts
+        // 검사도구 1: Missing / Disabled Scripts
         // ============================================================
         private void DrawMissingScriptsSection()
         {
             DrawSeparator();
-            _foldMissingScripts = EditorGUILayout.Foldout(_foldMissingScripts, "4. Missing / Disabled Scripts", true, EditorStyles.foldoutHeader);
+            _foldMissingScripts = EditorGUILayout.Foldout(_foldMissingScripts, "1. Missing / Disabled Scripts", true, EditorStyles.foldoutHeader);
             if (!_foldMissingScripts) return;
 
             EditorGUI.indentLevel++;
@@ -382,12 +418,12 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 섹션 5: Missing Bones (SkinnedMeshRenderer)
+        // 부가 도구 2: Missing Bones (SkinnedMeshRenderer)
         // ============================================================
         private void DrawMissingBonesSection()
         {
             DrawSeparator();
-            _foldMissingBones = EditorGUILayout.Foldout(_foldMissingBones, "5. Missing Bones in SkinnedMeshRenderer", true, EditorStyles.foldoutHeader);
+            _foldMissingBones = EditorGUILayout.Foldout(_foldMissingBones, "2. Missing Bones in SkinnedMeshRenderer", true, EditorStyles.foldoutHeader);
             if (!_foldMissingBones) return;
 
             EditorGUI.indentLevel++;
@@ -451,12 +487,12 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 섹션 6: Humanoid Bone Extractor
+        // 부가 도구 3: Humanoid Bone Extractor
         // ============================================================
         private void DrawHumanoidExtractorSection()
         {
             DrawSeparator();
-            _foldHumanoidExtractor = EditorGUILayout.Foldout(_foldHumanoidExtractor, "6. Humanoid Bone Extractor", true, EditorStyles.foldoutHeader);
+            _foldHumanoidExtractor = EditorGUILayout.Foldout(_foldHumanoidExtractor, "3. Humanoid Bone Extractor", true, EditorStyles.foldoutHeader);
             if (!_foldHumanoidExtractor) return;
 
             EditorGUI.indentLevel++;
@@ -485,12 +521,12 @@ namespace YAMO.UnityTools.Editor
         // 공통
         // ============================================================
         // ============================================================
-        // 섹션 7: Smart Empty Object Cleaner
+        // 검사도구 2: Smart Empty Object Cleaner
         // ============================================================
         private void DrawSmartEmptyCleanerSection()
         {
             DrawSeparator();
-            _foldEmptyCleaner = EditorGUILayout.Foldout(_foldEmptyCleaner, "7. Smart Empty Object Cleaner", true, EditorStyles.foldoutHeader);
+            _foldEmptyCleaner = EditorGUILayout.Foldout(_foldEmptyCleaner, "2. Smart Empty Object Cleaner", true, EditorStyles.foldoutHeader);
             if (!_foldEmptyCleaner) return;
 
             EditorGUI.indentLevel++;
@@ -696,12 +732,12 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 섹션 8: Inactive Object Finder
+        // 검사도구 3: Inactive Object Finder
         // ============================================================
         private void DrawInactiveObjectsSection()
         {
             DrawSeparator();
-            _foldInactiveObjects = EditorGUILayout.Foldout(_foldInactiveObjects, "8. Inactive Object Finder", true, EditorStyles.foldoutHeader);
+            _foldInactiveObjects = EditorGUILayout.Foldout(_foldInactiveObjects, "3. Inactive Object Finder", true, EditorStyles.foldoutHeader);
             if (!_foldInactiveObjects) return;
 
             EditorGUI.indentLevel++;
@@ -769,12 +805,12 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 섹션 9: Magica Collider Symmetry Fixer
+        // 부가 도구 4: Magica Collider Symmetry Fixer
         // ============================================================
         private void DrawMagicaSymmetrySection()
         {
             DrawSeparator();
-            _foldMagicaSymmetry = EditorGUILayout.Foldout(_foldMagicaSymmetry, "9. Magica Collider Symmetry Fixer", true, EditorStyles.foldoutHeader);
+            _foldMagicaSymmetry = EditorGUILayout.Foldout(_foldMagicaSymmetry, "4. Magica Collider Symmetry Fixer", true, EditorStyles.foldoutHeader);
             if (!_foldMagicaSymmetry) return;
 
             EditorGUI.indentLevel++;
@@ -848,12 +884,12 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 섹션 10: Boneless SMR Fixer
+        // 검사도구 4: Boneless SMR Fixer
         // ============================================================
         private void DrawBonelessSmrSection()
         {
             DrawSeparator();
-            _foldBonelessSmr = EditorGUILayout.Foldout(_foldBonelessSmr, "10. Boneless SMR Fixer", true, EditorStyles.foldoutHeader);
+            _foldBonelessSmr = EditorGUILayout.Foldout(_foldBonelessSmr, "4. Boneless SMR Fixer", true, EditorStyles.foldoutHeader);
             if (!_foldBonelessSmr) return;
 
             EditorGUI.indentLevel++;
