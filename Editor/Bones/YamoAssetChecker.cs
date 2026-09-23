@@ -1,6 +1,6 @@
 // YamoAssetChecker — 아바타/씬 자산을 점검·정리하는 통합 EditorWindow.
 //
-// 하위 탭: 네이밍 도구 (1–2) / 검사도구 (1–4) / 부가 도구 (1–4).
+// 하위 탭: 네이밍 도구 (1–2) / 검사도구 (1–5) / 부가 도구 (1–4).
 // 각 탭에서 번호를 1부터 시작하며, 각 섹션의 폴드아웃을 유지한다.
 //   네이밍 도구 1) Object Name Tools        — 일괄 이름 변경, 자식 정렬, 휴머노이드 스케일 점검
 //   네이밍 도구 2) Duplicate Names          — 중복 이름 검출 + 자동 리네임
@@ -110,6 +110,10 @@ namespace YAMO.UnityTools.Editor
         private bool _bonelessSmrScanned = false;
         private Vector2 _bonelessSmrScroll;
 
+        private bool _foldFbxMaterialSlots = true;
+        private GameObject _fbxMaterialRoot;
+        private FbxMaterialSlotChecker.Report _fbxMaterialReport;
+
         [MenuItem("Tools/YAMO/Bones/YAMO Asset Checker")]
         public static void ShowWindow()
         {
@@ -166,6 +170,7 @@ namespace YAMO.UnityTools.Editor
                     DrawSmartEmptyCleanerSection();    // 2
                     DrawInactiveObjectsSection();      // 3
                     DrawBonelessSmrSection();           // 4
+                    DrawFbxMaterialSlotsSection();      // 5
                     break;
                 case ToolCategory.Additional:
                     DrawUnusedBonesSection();          // 1
@@ -977,8 +982,76 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 공통
+        // 검사도구 5: FBX Material Slot Check
         // ============================================================
+        private void DrawFbxMaterialSlotsSection()
+        {
+            DrawSeparator();
+            _foldFbxMaterialSlots = EditorGUILayout.Foldout(_foldFbxMaterialSlots,
+                "5. FBX Material Slot Check", true, EditorStyles.foldoutHeader);
+            if (!_foldFbxMaterialSlots) return;
+
+            EditorGUILayout.HelpBox(
+                "베이크할 아바타 루트의 Materials / SubMeshes 대응을 검사합니다 (비활성 자식 포함).\n" +
+                "슬롯 수 불일치, 빈 서브메시, 누락/반복 재질을 읽기 전용으로 검사하고 해결 방법을 표시합니다.",
+                MessageType.None);
+            EditorGUI.BeginChangeCheck();
+            _fbxMaterialRoot = (GameObject)EditorGUILayout.ObjectField(
+                "Target Root", _fbxMaterialRoot, typeof(GameObject), true);
+            if (EditorGUI.EndChangeCheck()) _fbxMaterialReport = null;
+            using (new EditorGUI.DisabledScope(Selection.activeGameObject == null))
+            {
+                if (GUILayout.Button("선택 오브젝트를 Target Root로"))
+                {
+                    _fbxMaterialRoot = Selection.activeGameObject;
+                    _fbxMaterialReport = null;
+                }
+            }
+            using (new EditorGUI.DisabledScope(_fbxMaterialRoot == null))
+            {
+                if (GUILayout.Button("Scan Material Slots"))
+                    _fbxMaterialReport = FbxMaterialSlotChecker.Scan(_fbxMaterialRoot);
+            }
+            if (_fbxMaterialRoot == null || _fbxMaterialReport == null) return;
+
+            EditorGUILayout.LabelField(
+                $"검사 Renderer: {_fbxMaterialReport.RendererCount}개 / 발견 항목: {_fbxMaterialReport.Issues.Count}개");
+            EditorGUILayout.HelpBox(
+                _fbxMaterialReport.RendererCount == 0
+                    ? "검사 가능한 MeshRenderer / SkinnedMeshRenderer가 없습니다. 아바타 루트를 지정하세요."
+                    : "검사 결과는 마지막 Scan 시점 기준입니다. 수정 후 다시 검사하세요. " +
+                      "이 검사는 실제 FBX 내보내기/재임포트를 수행하지 않으므로 임포터별 슬롯 변화까지 보장하지 않습니다.",
+                MessageType.Info);
+            if (_fbxMaterialReport.RendererCount > 0 && _fbxMaterialReport.Issues.Count == 0)
+                EditorGUILayout.HelpBox("머티리얼 슬롯의 사전 검사에서 문제를 찾지 못했습니다.", MessageType.Info);
+
+            foreach (var issue in _fbxMaterialReport.Issues)
+            {
+                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                EditorGUILayout.LabelField(issue.Path, EditorStyles.wordWrappedLabel);
+                EditorGUILayout.BeginHorizontal();
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    EditorGUILayout.ObjectField(issue.Renderer, typeof(Renderer), true);
+                    EditorGUILayout.ObjectField(issue.Mesh, typeof(Mesh), false);
+                }
+                using (new EditorGUI.DisabledScope(issue.Renderer == null))
+                {
+                    if (GUILayout.Button("선택", GUILayout.Width(44)))
+                    {
+                        Selection.activeGameObject = issue.Renderer.gameObject;
+                        EditorGUIUtility.PingObject(issue.Renderer);
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.LabelField(
+                    $"Materials {issue.MaterialCount} / SubMeshes {issue.SubMeshCount}", EditorStyles.boldLabel);
+                EditorGUILayout.HelpBox(issue.Reason, issue.BlocksBake ? MessageType.Error : MessageType.Warning);
+                EditorGUILayout.LabelField("해결: " + issue.Solution, EditorStyles.wordWrappedLabel);
+                EditorGUILayout.EndVertical();
+            }
+        }
+
         private static void DrawSeparator()
         {
             GUILayout.Space(4);

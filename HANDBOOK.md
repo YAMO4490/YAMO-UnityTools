@@ -9,7 +9,7 @@
 | 항목 | 내용 |
 |---|---|
 | 이름 | `com.yamo.unitytools` |
-| 버전 | 0.10.1 (AssetChecker 하위 탭 및 탭별 번호) |
+| 버전 | 0.10.2 (FBX 머티리얼 슬롯 사전 검사) |
 | 대상 | Unity 2021.3 이상. Runtime 부분은 빌드에 포함, Editor 부분은 에디터 전용 |
 | 어셈블리 | 4개 — Runtime / Editor (코어) / Physics.Editor / Biped.Editor |
 | 메뉴 루트 | `Tools/YAMO/...` |
@@ -66,7 +66,7 @@ Packages/com.yamo.unitytools/
     │       └── YamoBoneNormalizer.cs               ← UniGLTF BoneNormalizer fork + 회전 보존 옵션
     ├── Bones/
     │   ├── HumanBoneRenamer.cs                     ← Tools/YAMO/Bones/Human Bone Renamer
-    │   ├── YamoAssetChecker.cs                     ← Tools/YAMO/Bones/YAMO Asset Checker (3개 하위 탭·10섹션)
+    │   ├── YamoAssetChecker.cs                     ← Tools/YAMO/Bones/YAMO Asset Checker (3개 하위 탭·11섹션)
     │   └── YamoAssetCheckerCore.cs                 ← Asset Checker 코어 정적 헬퍼
     ├── Camera/
     │   ├── CameraCompositionWindow.cs              ← Tools/YAMO/Camera/Composition Overlay
@@ -267,10 +267,10 @@ Packages/com.yamo.unitytools/
 - 3ds Max Biped 매핑 (`bipedMapping`), Mixamo 등 자동 인식.
 
 #### `Bones/YamoAssetChecker.cs` — `Tools/YAMO/Bones/YAMO Asset Checker`
-**3개 하위 탭·10개 섹션**. 이전의 `ObjectNameModifier` / `MissingScriptRemover` / `FindMissingBones` / `FindUnusedBones` 가 모두 흡수됨.
+**3개 하위 탭·11개 섹션**. 이전의 `ObjectNameModifier` / `MissingScriptRemover` / `FindMissingBones` / `FindUnusedBones` 가 모두 흡수됨.
 
 - **네이밍 도구**: 1번 Object Name Tools, 2번 Duplicate Names.
-- **검사도구**: 1번 Missing / Disabled Scripts, 2번 Smart Empty Object Cleaner, 3번 Inactive Object Finder, 4번 Boneless SMR Fixer.
+- **검사도구**: 1번 Missing / Disabled Scripts, 2번 Smart Empty Object Cleaner, 3번 Inactive Object Finder, 4번 Boneless SMR Fixer, 5번 FBX Material Slot Check.
 - **부가 도구**: 1번 Unused Bones, 2번 Missing Bones, 3번 Humanoid Bone Extractor, 4번 Magica Collider Symmetry Fixer.
 - 하위 탭 버튼은 스크롤 바깥에 고정하며, 각 분류의 스크롤 위치와 도구 입력/결과를 유지한다. 섹션 번호는 각 탭에서 1부터 시작하며, 폴드아웃은 유지한다. Hub와 독립 창에 동일하게 적용된다.
 
@@ -283,6 +283,16 @@ Packages/com.yamo.unitytools/
 | 부가 도구 2. Missing Bones (SMR) | 씬/Selection 의 SkinnedMeshRenderer 의 `bones[i] == null` 또는 rootBone null 검출 |
 | 부가 도구 4. Magica Collider Symmetry Fixer | Biped 변환 아바타에서 MagicaCloth2 콜라이더의 Automatic 시메트리가 반대편 본을 못 찾는 문제 수정 — 팔/다리 Primary 본 아래 콜라이더 중 Symmetry Target 이 비었거나 Biped 본인 것을 찾아 `X_Symmetry` + 반대편 Primary 본으로 설정(SerializedObject 접근, MagicaCloth2 하드 참조 없음). API: `ScanMagicaSymmetryTargets`, `FixMagicaSymmetryTargets` |
 | 검사도구 4. Boneless SMR Fixer | bones/bindposes 가 0개인 SMR(블렌드셰이프만 있는 소품 등 — FBX/VRM 익스포트 시 메시 소실) 검출. FIX: SMR 과 같은 부모·같은 로컬 트랜스폼에 `<이름>_Bone` 생성 + 100% 스키닝한 메시 사본(`<메시>_Skinned.asset`, 원본 메시 옆)으로 교체. API: `ScanBonelessSmrsInScene/Children`, `FixBonelessSmrs` |
+
+#### `Bones/FbxMaterialSlotChecker.cs`
+- Asset Checker와 Avatar Bake가 공유하는 읽기 전용 FBX 머티리얼 슬롯 사전 검사.
+- 사용: Asset Checker → 검사도구 → 5. FBX Material Slot Check → Target Root 지정 → Scan Material Slots.
+- 비활성 자식을 포함한 MeshRenderer/SkinnedMeshRenderer를 검사하고 경로, Renderer/메시 참조, Materials/SubMeshes 수, 원인, 해결 방법을 표시한다.
+- 슬롯 수 불일치는 베이크 차단 오류. 메시 누락, 빈 서브메시, 비어 있는 재질 슬롯, 같은 재질 반복 사용은 경고.
+- 예: 서브메시 1개에 재질 2개를 연결하면 FBX 왕복 후 슬롯이 1개로 줄어 원본 슬롯 매핑에 실패할 수 있다.
+- 추가 재질이 불필요하면 초과 슬롯을 제거한다. 겹쳐 그리기가 필요하면 메시 사본에 마지막 서브메시의 면을 추가 서브메시로 복제해 재질을 배정하거나 고유 이름의 별도 Renderer로 분리한다. 본/블렌드셰이프와 외관을 비교해야 하며 자동 삭제는 하지 않는다.
+- 수정 후 다시 Scan한다. 실제 FBX 내보내기/재임포트 검사가 아니므로 모든 임포터별 슬롯 변화를 보장하지 않는다.
+- API: `FbxMaterialSlotChecker.Scan(root)` → `Report.RendererCount / Issues / HasErrors`.
 
 #### `Bones/YamoAssetCheckerCore.cs`
 - 위 5 섹션이 호출하는 정적 헬퍼 모음 (UI 무관 순수 로직).
@@ -504,6 +514,13 @@ namespace YAMO.UnityTools.Editor
 | Hub 단축키 충돌 | `Edit ▸ Shortcuts` → "YAMO/Open Tool Hub" 검색 → 다른 키로 변경 |
 
 ## 9. 변경 이력 요약
+
+### 0.10.2
+- Asset Checker 검사도구 5번 FBX Material Slot Check 추가: 슬롯 수 불일치 및 빈 서브메시/누락·반복 재질 검사, 문제 위치와 해결 방법 안내.
+- Avatar Bake에서 동일 검사를 실행하여 슬롯 수 불일치가 있으면 스냅샷 생성·원본 상태 변경·FBX 출력 전에 중단.
+- FBX 매핑 오류에 원본 Materials/SubMeshes 수와 FBX Materials 수, 검사 도구 위치 표시.
+- 검사기는 읽기 전용이며 원본 머티리얼이나 메시를 자동 수정하지 않는다.
+- 검증: Main Unity 컴파일 오류·경고 0개, EditMode 회귀 테스트 8개 통과, 실제 아바타 사전 차단 및 씬/출력 무변경 확인.
 
 ### 0.10.0
 - Avatar Bake & Prefab를 1~4번 하위 탭으로 구성하고, 4번 Scale Bake 추가.

@@ -134,6 +134,20 @@ namespace YAMO.UnityTools.Editor
                 return false;
             }
 
+            // Stop before snapshots, source activation or output writes.
+            var materialReport = FbxMaterialSlotChecker.Scan(opt.Source);
+            foreach (var issue in materialReport.Issues)
+            {
+                var message = "[Material preflight] " + issue.Summary;
+                if (issue.BlocksBake) log.Error(message);
+                else log.Warning(message);
+            }
+            if (materialReport.HasErrors)
+            {
+                log.Error("Asset Checker > 검사도구 > FBX Material Slot Check에서 문제를 해결한 뒤 다시 베이크하세요.");
+                return false;
+            }
+
             GameObject snapshot = null;
             GameObject normalized = null;
             GameObject targetInstance = null;

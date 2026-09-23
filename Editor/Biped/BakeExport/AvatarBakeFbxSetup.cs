@@ -169,7 +169,10 @@ namespace YAMO.UnityTools.Editor
                 var originalMaterials = matches[0].sharedMaterials;
                 var importedMaterials = renderer.sharedMaterials;
                 if (originalMaterials.Length != importedMaterials.Length)
-                    throw new InvalidOperationException("FBX/원본 머티리얼 슬롯 수가 다릅니다: " + renderer.name);
+                    throw new InvalidOperationException(
+                        $"FBX/원본 머티리얼 슬롯 수가 다릅니다: {renderer.name} " +
+                        $"(원본 Materials={originalMaterials.Length}, 원본 SubMeshes={FbxMaterialSlotChecker.GetMesh(matches[0])?.subMeshCount}, FBX Materials={importedMaterials.Length}). " +
+                        "Asset Checker > 검사도구 > FBX Material Slot Check에서 원인과 해결 방법을 확인하세요.");
                 for (int i = 0; i < importedMaterials.Length; i++)
                 {
                     var original = originalMaterials[i];
