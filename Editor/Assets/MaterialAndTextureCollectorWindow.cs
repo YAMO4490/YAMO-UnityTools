@@ -229,25 +229,22 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
                 "머테리얼의 텍스처 참조관계가 깨지지 않고 그대로 유지됩니다.",
                 MessageType.Info);
 
-            EditorGUILayout.BeginHorizontal();
-            psdSearchPath = EditorGUILayout.TextField("🔍 검색 경로", psdSearchPath);
-            if (GUILayout.Button("선택", GUILayout.Width(60)))
+            string selectedPsdPath = DrawSearchFolderField(psdSearchPath);
+            if (selectedPsdPath != psdSearchPath)
             {
-                var selected = ChooseFolder(psdSearchPath);
-                if (!string.IsNullOrEmpty(selected))
-                {
-                    psdSearchPath = selected;
-                    psdScanned = false;
-                    psdFoundEntries.Clear();
-                    psdResultLog.Clear();
-                }
+                psdSearchPath = selectedPsdPath;
+                psdScanned = false;
+                psdFoundEntries.Clear();
+                psdResultLog.Clear();
             }
-            EditorGUILayout.EndHorizontal();
 
             psdResizeOver2048 = EditorGUILayout.Toggle("📐 2048 초과 시 2048로 리사이즈", psdResizeOver2048);
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("🔍 PSD 파일 스캔")) ScanPSDFiles();
+            using (new EditorGUI.DisabledScope(!IsValidSearchFolder(psdSearchPath)))
+            {
+                if (GUILayout.Button("🔍 PSD 파일 스캔")) ScanPSDFiles();
+            }
 
             int psdConvertCount = 0;
             foreach (var e in psdFoundEntries) if (e.include) psdConvertCount++;
@@ -350,25 +347,22 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
                 "⚠️ JPG는 재인코딩 시 화질 손실이 누적될 수 있습니다.",
                 MessageType.Info);
 
-            EditorGUILayout.BeginHorizontal();
-            texResizePath = EditorGUILayout.TextField("🔍 검색 경로", texResizePath);
-            if (GUILayout.Button("선택", GUILayout.Width(60)))
+            string selectedResizePath = DrawSearchFolderField(texResizePath);
+            if (selectedResizePath != texResizePath)
             {
-                var selected = ChooseFolder(texResizePath);
-                if (!string.IsNullOrEmpty(selected))
-                {
-                    texResizePath = selected;
-                    texResizeScanned = false;
-                    texResizeEntries.Clear();
-                    texResizeLog.Clear();
-                }
+                texResizePath = selectedResizePath;
+                texResizeScanned = false;
+                texResizeEntries.Clear();
+                texResizeLog.Clear();
             }
-            EditorGUILayout.EndHorizontal();
 
             texJpgQuality = EditorGUILayout.IntSlider("JPG 재인코딩 품질", texJpgQuality, 1, 100);
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("🔍 대형 텍스처 스캔")) ScanLargeTextures();
+            using (new EditorGUI.DisabledScope(!IsValidSearchFolder(texResizePath)))
+            {
+                if (GUILayout.Button("🔍 대형 텍스처 스캔")) ScanLargeTextures();
+            }
 
             int texResizeCount = 0;
             foreach (var e in texResizeEntries) if (e.include) texResizeCount++;
@@ -1028,6 +1022,8 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         psdResultLog.Clear();
         psdScanned = false;
 
+        if (!IsValidSearchFolder(psdSearchPath)) return;
+
         string absSearchPath = ProjectRelativeToAbsolute(psdSearchPath);
         if (!Directory.Exists(absSearchPath))
         {
@@ -1240,6 +1236,8 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         texResizeEntries.Clear();
         texResizeLog.Clear();
         texResizeScanned = false;
+
+        if (!IsValidSearchFolder(texResizePath)) return;
 
         string absSearchPath = ProjectRelativeToAbsolute(texResizePath);
         if (!Directory.Exists(absSearchPath))
@@ -1535,6 +1533,41 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     // =====================================================
     // 공통 유틸리티
     // =====================================================
+
+    static bool IsValidSearchFolder(string path)
+    {
+        return !string.IsNullOrEmpty(path)
+            && (path == "Assets" || path.StartsWith("Assets/", System.StringComparison.Ordinal))
+            && AssetDatabase.IsValidFolder(path);
+    }
+
+    string DrawSearchFolderField(string currentPath)
+    {
+        var currentFolder = IsValidSearchFolder(currentPath)
+            ? AssetDatabase.LoadAssetAtPath<DefaultAsset>(currentPath)
+            : null;
+        string selectedPath = currentPath;
+
+        EditorGUILayout.BeginHorizontal();
+        EditorGUI.BeginChangeCheck();
+        var selectedFolder = EditorGUILayout.ObjectField(
+            new GUIContent("🔍 검색 폴더", "Project 창의 Assets 폴더를 드래그해서 넣으세요.\n" + currentPath),
+            currentFolder, typeof(DefaultAsset), false);
+        if (EditorGUI.EndChangeCheck())
+        {
+            string candidatePath = AssetDatabase.GetAssetPath(selectedFolder);
+            if (selectedFolder == null || IsValidSearchFolder(candidatePath))
+                selectedPath = selectedFolder == null ? string.Empty : candidatePath;
+        }
+
+        if (GUILayout.Button("선택", GUILayout.Width(60)))
+        {
+            string candidatePath = ChooseFolder(selectedPath);
+            if (IsValidSearchFolder(candidatePath)) selectedPath = candidatePath;
+        }
+        EditorGUILayout.EndHorizontal();
+        return selectedPath;
+    }
 
 	string ChooseFolder(string currentProjectRelativePath)
 	{

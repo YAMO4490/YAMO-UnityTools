@@ -9,7 +9,7 @@
 | 항목 | 내용 |
 |---|---|
 | 이름 | `com.yamo.unitytools` |
-| 버전 | 0.10.2 (FBX 머티리얼 슬롯 사전 검사) |
+| 버전 | 0.10.3 (텍스처 검색 폴더 드래그 입력) |
 | 대상 | Unity 2021.3 이상. Runtime 부분은 빌드에 포함, Editor 부분은 에디터 전용 |
 | 어셈블리 | 4개 — Runtime / Editor (코어) / Physics.Editor / Biped.Editor |
 | 메뉴 루트 | `Tools/YAMO/...` |
@@ -238,6 +238,8 @@ Packages/com.yamo.unitytools/
 2. **PSD → PNG 변환**: GUID 보존하며 PSD 를 PNG 로 일괄 변환 (메타 이식 + 원본 삭제)
 3. **텍스처 리사이즈 (2048 초과)**: NormalMap 채널 왜곡 방지 (Default 타입 임시 변경 + sRGB false 강제), HDR→EXR 자동 변환
 4. **Convert NiloToon**: 머티리얼 백업(`Assets/MaterialsBackup`) → NiloToon Auto setup(변환) → 텍스처 없는 활성 기능 정리. UI 만 담당, 로직은 `NiloToonConvertCore`.
+
+- **검색 폴더 입력**: PSD → PNG 변환과 텍스처 리사이즈의 `검색 폴더` 슬롯에 Project 창의 `Assets` 또는 그 하위 폴더를 드래그해서 지정한다. 기존 `선택` 버튼으로도 폴더를 지정할 수 있다. 검색 폴더를 변경하거나 비우면 이전 스캔 목록과 결과 로그를 초기화하며, 유효한 폴더가 없으면 스캔 버튼이 비활성화된다. 파일과 `Packages` 폴더는 검색 대상으로 받지 않는다.
 
 #### `Assets/NiloToonConvertCore.cs`
 - 정적 API: `ConvertAvatar(root)`(백업→변환→정리), `CleanupOnly(root)`, `LoadBackupSet(folder, out error)`, `RestoreFromBackup(BackupSet)`, `IsSupported`/`InstalledNiloToonVersion`/`IsVersionSupported(text)`. 결과는 `Result.ToText()`.
