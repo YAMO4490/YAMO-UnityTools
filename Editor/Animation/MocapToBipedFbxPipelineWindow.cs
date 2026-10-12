@@ -40,6 +40,7 @@ namespace YAMO.UnityTools.Editor
 
         [SerializeField] private Tab activeTab;
         [SerializeField] private Animator targetAnimator;
+        [SerializeField] private bool queueAssetsSuspended;
         [SerializeField, FormerlySerializedAs("items")]
         private List<MocapPipelineItem> optiTrackItems = new List<MocapPipelineItem>();
         [SerializeField] private List<MocapPipelineItem> mmrpItems = new List<MocapPipelineItem>();
@@ -123,6 +124,14 @@ namespace YAMO.UnityTools.Editor
 
         private void OnGUI()
         {
+            if (MocapToBipedFbxPlayModeRunner.IsRunning)
+            {
+                EditorGUILayout.HelpBox(MocapToBipedFbxPlayModeRunner.Status, MessageType.Info);
+                if (GUILayout.Button("작업 취소")) MocapToBipedFbxPlayModeRunner.Cancel();
+                Repaint();
+                return;
+            }
+            RestoreQueueReferences();
             DrawTabBar();
             scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
             if (activeTab == Tab.FbxSetup)
@@ -162,7 +171,7 @@ namespace YAMO.UnityTools.Editor
             DrawReadmeButton(PipelineReadmePath);
 
             if (MocapToBipedFbxPlayModeRunner.IsRunning)
-                EditorGUILayout.HelpBox("Play Mode Hinge 배치가 실행 중입니다. Edit Mode 복귀 후 FBX Export가 자동으로 이어집니다.", MessageType.Warning);
+                EditorGUILayout.HelpBox("항목별 녹화와 FBX 출력이 순서대로 진행됩니다.", MessageType.Warning);
 
             DrawTarget();
             EditorGUILayout.Space(8f);
@@ -383,43 +392,30 @@ namespace YAMO.UnityTools.Editor
             try
             {
                 EditorPrefs.SetString(FbxDirectoryKey, fbxOutputDirectory);
-                if (hingeBakeMode == MocapHingeBakeMode.PlayMode)
+                MocapToBipedFbxPlayModeRunner.Start(settings, items, revealAfterExport);
+                foreach (var item in optiTrackItems.Concat(mmrpItems).Where(x => x != null))
                 {
-                    MocapToBipedFbxPlayModeRunner.Start(settings, items, revealAfterExport);
-                    return;
+                    item.SourceAssetPath = AssetDatabase.GetAssetPath(item.SourceFbx);
+                    item.SourceFbx = null;
                 }
-
-                var results = MocapToBipedFbxPipeline.Run(
-                    settings,
-                    items,
-                    (message, progress) => EditorUtility.DisplayCancelableProgressBar(
-                        "Mocap → Biped FBX",
-                        message,
-                        progress));
-
-                var succeeded = results.Count(result => result.Succeeded);
-                var failed = results.Count - succeeded;
-                if (revealAfterExport && succeeded > 0)
-                    EditorUtility.RevealInFinder(fbxOutputDirectory);
-                EditorUtility.DisplayDialog(
-                    "Mocap 파이프라인 완료",
-                    $"성공: {succeeded}개\n실패: {failed}개\n\n원본 백업: FBX 입력 옆 *_Backup.fbx\nFBX: {fbxOutputDirectory}",
-                    "확인");
-            }
-            catch (OperationCanceledException)
-            {
-                Debug.LogWarning("[Mocap Pipeline] 사용자가 작업을 취소했습니다.");
+                queueAssetsSuspended = true;
             }
             catch (Exception exception)
             {
                 Debug.LogException(exception);
                 EditorUtility.DisplayDialog("Mocap 파이프라인 실패", exception.Message, "확인");
             }
-            finally
+        }
+
+        private void RestoreQueueReferences()
+        {
+            if (!queueAssetsSuspended) return;
+            foreach (var item in optiTrackItems.Concat(mmrpItems).Where(x => x != null))
             {
-                EditorUtility.ClearProgressBar();
-                AssetDatabase.Refresh();
+                if (!string.IsNullOrEmpty(item.SourceAssetPath)) item.SourceFbx = AssetDatabase.LoadMainAssetAtPath(item.SourceAssetPath);
+                item.SourceAssetPath = null;
             }
+            queueAssetsSuspended = false;
         }
 
         private bool CanRun()

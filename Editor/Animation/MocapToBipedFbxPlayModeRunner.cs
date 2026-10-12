@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -9,19 +10,23 @@ using Object = UnityEngine.Object;
 
 namespace YAMO.UnityTools.Editor
 {
-    /// <summary>
-    /// Persists a prepared mocap batch across the Play Mode domain reload, then
-    /// resumes in Edit Mode to build Generic clips and export Max-compatible FBX.
-    /// </summary>
     [InitializeOnLoad]
     public static class MocapToBipedFbxPlayModeRunner
     {
         private const string PendingKey = "YAMO.MocapPipeline.PlayMode.Pending";
         private const string StateKey = "YAMO.MocapPipeline.PlayMode.State";
-
+        private const string CancelKey = "YAMO.MocapPipeline.Cancel";
+        private const string StatusKey = "YAMO.MocapPipeline.Status";
+        private static bool scheduled;
         [Serializable]
         private sealed class RunnerState
         {
+            public int CurrentIndex;
+            public MocapHingeBakeMode BakeMode;
+            public int Succeeded;
+            public bool AwaitingPlay;
+            public MocapSourceFormat SourceFormat;
+            public ExistingMotionAssetPolicy BindingPolicy;
             public string TargetGlobalId;
             public int TargetInstanceId;
             public string OriginalControllerPath;
@@ -50,6 +55,10 @@ namespace YAMO.UnityTools.Editor
         [Serializable]
         private sealed class PreparedItem
         {
+            public string SourcePath;
+            public string SourceGuid;
+            public string BindingName;
+            public string RequestedOutputName;
             public string SourceName;
             public string OutputName;
             public string StateName;
@@ -58,89 +67,221 @@ namespace YAMO.UnityTools.Editor
             public float Duration;
         }
 
-        public static bool IsRunning => SessionState.GetBool(PendingKey, false);
 
+        public static bool IsRunning => SessionState.GetBool(PendingKey, false);
+        public static string Status => SessionState.GetString(StatusKey, "대기 중");
         static MocapToBipedFbxPlayModeRunner()
         {
-            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            EditorApplication.delayCall += () =>
+            {
+                if (!IsRunning || EditorApplication.isPlayingOrWillChangePlaymode) return;
+                var state = ReadState();
+                if (state != null && state.AwaitingPlay) ScheduleFinish();
+                else if (state != null) OnFailure(state, new OperationCanceledException("스크립트 리로드로 Mocap 작업이 중단되었습니다."));
+            };
         }
-
-        public static void Start(
-            MocapPipelineSettings settings,
-            IReadOnlyList<MocapPipelineItem> items,
-            bool revealAfterExport)
+        public static void Start(MocapPipelineSettings settings, IReadOnlyList<MocapPipelineItem> items, bool revealAfterExport)
         {
             ValidateStart(settings, items);
-            if (IsRunning)
-                throw new InvalidOperationException("이미 Play Mode Mocap 파이프라인이 실행 중입니다.");
-
-            var targetAnimator = settings.TargetAnimator;
-            var token = Guid.NewGuid().ToString("N");
-            var state = CreateState(settings, targetAnimator, token, revealAfterExport);
-            var preparedClips = new List<AnimationClip>();
-            AnimatorController temporaryController = null;
-            YAMO.UnityTools.ForearmHingeBatchRecorder recorder = null;
-
+            if (IsRunning) throw new InvalidOperationException("Mocap 작업이 이미 실행 중입니다.");
+            var target = settings.TargetAnimator;
+            if (target.GetComponent<YAMO.UnityTools.ForearmHingeBatchRecorder>() != null ||
+                target.GetComponent<YAMO.UnityTools.ForearmHingeRecorder>() != null)
+                throw new InvalidOperationException("대상에 Recorder가 이미 있습니다.");
+            var state = CreateState(settings, target, Guid.NewGuid().ToString("N"), revealAfterExport);
+            state.BakeMode = settings.HingeBakeMode;
+            Directory.CreateDirectory(state.ResultDirectory); Directory.CreateDirectory(state.FbxOutputDirectory);
+            var enabled = items.Where(x => x != null && x.Enabled).ToList();
+            var names = OptiTrackMotionBindingService.PlanAnimationNames(enabled.Select(x => AssetDatabase.GetAssetPath(x.SourceFbx)), settings.SourceFormat, out var notes);
+            foreach (var note in notes) Debug.Log("[Mocap Pipeline] " + note);
+            foreach (var item in enabled)
+            {
+                var path = AssetDatabase.GetAssetPath(item.SourceFbx);
+                names.TryGetValue(path, out var bindingName);
+                var index = state.Items.Count;
+                state.Items.Add(new PreparedItem { SourcePath = path, SourceGuid = AssetDatabase.AssetPathToGUID(path), BindingName = bindingName,
+                    RequestedOutputName = item.OutputName, StateName = "YAMO_Mocap_Current", ResultPath = Path.Combine(state.ResultDirectory, $"{index:D4}.bin"),
+                    StartTime = item.StartTime, Duration = item.Duration });
+            }
+            SessionState.SetBool(CancelKey, false); SessionState.SetBool(PendingKey, true); Save(state);
+            // Return to the window first so it can drop its queued asset references.
+            EditorApplication.delayCall += () => StartPreparation(state);
+        }
+        public static void Cancel()
+        {
+            if (!IsRunning) return;
+            SessionState.SetBool(CancelKey, true);
+            if (EditorApplication.isPlaying) EditorApplication.isPlaying = false;
+        }
+        private static void StartPreparation(RunnerState state)
+        {
+            MocapMemoryWork.Run(PrepareCurrent(state), exception => OnFailure(state, exception));
+        }
+        private static IEnumerator PrepareCurrent(RunnerState state)
+        {
+            if (state.CurrentIndex >= state.Items.Count) { Finish(state, false); yield break; }
+            yield return MocapMemoryWork.Reclaim("다음 항목 준비 전");
+            CheckCancelled();
+            SetStatus(state, "입력 모션 준비", 0f);
+            var item = state.Items[state.CurrentIndex];
+            var path = AssetDatabase.GUIDToAssetPath(item.SourceGuid);
+            if (!string.IsNullOrEmpty(path)) item.SourcePath = path;
+            var inputSize = new FileInfo(Path.GetFullPath(Path.Combine(Application.dataPath, "..", item.SourcePath))).Length;
+            MocapMemoryWork.RequireHeadroom("입력 모션 준비", checked(inputSize * 12));
+            var source = AssetDatabase.LoadMainAssetAtPath(item.SourcePath);
+            AnimationClip clip; string fallback;
+            if (MocapPipelineSourceUtility.TryGetStandaloneAnimationClip(source, out clip)) fallback = Path.GetFileNameWithoutExtension(item.SourcePath);
+            else
+            {
+                if (!MocapPipelineSourceUtility.IsFbxModel(source)) throw new InvalidOperationException("지원되는 모션 입력이 아닙니다: " + item.SourcePath);
+                var error = OptiTrackMotionBindingService.ValidateSourceFormat(item.SourcePath, state.SourceFormat);
+                if (error != null) throw new InvalidOperationException(error);
+                OptiTrackMotionBindingService.EnsureSourceBackup(item.SourcePath, out _);
+                var binding = OptiTrackMotionBindingService.Process(item.SourcePath, state.BindingPolicy, item.BindingName, state.SourceFormat);
+                if (!binding.Succeeded || binding.AnimationClip == null) throw new InvalidOperationException(binding.Note);
+                clip = binding.AnimationClip; fallback = binding.AnimationName;
+            }
+            CheckCancelled();
+            var input = new MocapPipelineItem { StartTime = item.StartTime, Duration = item.Duration, OutputName = item.RequestedOutputName };
+            ValidateRange(input, clip);
+            var used = new HashSet<string>(state.Items.Take(state.CurrentIndex).Select(x => x.OutputName).Where(x => !string.IsNullOrEmpty(x)), StringComparer.OrdinalIgnoreCase);
+            item.OutputName = MocapPipelineOutputNaming.MakeUnique(input, fallback, item.SourcePath, used);
+            item.SourceName = clip.name; item.Duration = item.Duration > 0f ? item.Duration : clip.length - item.StartTime;
+            var frames = checked((int)Math.Ceiling((double)item.Duration * state.SampleRate) + 1);
+            var boneCount = Math.Max(1, (int)HumanBodyBones.LastBone);
+            MocapMemoryWork.RequireHeadroom("녹화/커브 생성", checked((long)frames * boneCount * 7 * 32 * 2));
+            var rawBytes = checked((long)frames * boneCount * 28);
+            if (new DriveInfo(Path.GetPathRoot(state.ResultDirectory)).AvailableFreeSpace < rawBytes * 2 + 64L * 1024 * 1024)
+                throw new IOException("녹화 및 변환용 임시 디스크 공간이 부족합니다.");
+            var target = ResolveTargetAnimator(state);
+            if (target == null) throw new InvalidOperationException("대상 Animator를 찾을 수 없습니다.");
+            if (state.BakeMode == MocapHingeBakeMode.EditMode)
+            {
+                yield return MocapEditPoseRecorder.Record(target, clip, item.ResultPath, item.StartTime, item.Duration,
+                    state.SampleRate, state.EnableHingeCorrection, state.HingeAxis, state.HandRotationCompensation,
+                    (message, value) => Progress(state, message, value * 0.2f));
+                source = null; clip = null;
+                yield return FinishCurrent(state);
+                yield break;
+            }
+            target.runtimeAnimatorController = BuildController(state.TemporaryControllerPath, new[] { item }, new[] { clip });
+            var recorder = target.gameObject.AddComponent<YAMO.UnityTools.ForearmHingeBatchRecorder>();
+            recorder.sampleRate = state.SampleRate; recorder.enableHingeCorrection = state.EnableHingeCorrection;
+            recorder.hingeAxisIndex = state.HingeAxis; recorder.handRotationCompensation = state.HandRotationCompensation;
+            recorder.stateNames = new[] { item.StateName }; recorder.resultPaths = new[] { item.ResultPath };
+            recorder.startTime = item.StartTime; recorder.duration = item.Duration;
+            state.AwaitingPlay = true; Save(state); SetStatus(state, "Play Mode 디스크 녹화", 0.1f);
+            EditorUtility.ClearProgressBar();
+            source = null; clip = null;
+            EditorApplication.isPlaying = true;
+        }
+        private static void OnPlayModeStateChanged(PlayModeStateChange change)
+        {
+            if (change == PlayModeStateChange.EnteredEditMode && IsRunning) ScheduleFinish();
+        }
+        private static void ScheduleFinish()
+        {
+            if (scheduled) return; scheduled = true;
+            EditorApplication.delayCall += () =>
+            {
+                scheduled = false;
+                if (!IsRunning || EditorApplication.isPlayingOrWillChangePlaymode) return;
+                var state = ReadState();
+                if (state == null) { SessionState.EraseBool(PendingKey); return; }
+                MocapMemoryWork.Run(FinishCurrent(state), exception => OnFailure(state, exception));
+            };
+        }
+        private static IEnumerator FinishCurrent(RunnerState state)
+        {
+            state.AwaitingPlay = false; Save(state);
+            var target = ResolveTargetAnimator(state);
+            CleanupSceneAndController(state, target);
+            if (target == null) throw new InvalidOperationException("대상 Animator를 찾을 수 없습니다.");
+            CheckCancelled();
+            yield return MocapMemoryWork.Reclaim("녹화 후 컨트롤러 정리");
+            var item = state.Items[state.CurrentIndex];
+            ForearmHingeBakeResult result = null;
+            if (File.Exists(item.ResultPath + ".error.txt"))
+                throw new IOException("녹화 단계 실패: " + File.ReadAllText(item.ResultPath + ".error.txt"));
+            if (!File.Exists(item.ResultPath))
+                throw new OperationCanceledException("녹화가 완료되기 전에 Play Mode가 종료되어 대기열을 취소했습니다.");
             try
             {
-                PrepareItems(settings, items, state, preparedClips);
-                if (state.Items.Count == 0)
-                {
-                    ShowNoPreparedItems(state.PreparationErrors);
-                    return;
-                }
-
-                temporaryController = BuildController(
-                    state.TemporaryControllerPath,
-                    state.Items,
-                    preparedClips);
-                targetAnimator.runtimeAnimatorController = temporaryController;
-
-                if (targetAnimator.GetComponent<YAMO.UnityTools.ForearmHingeBatchRecorder>() != null ||
-                    targetAnimator.GetComponent<YAMO.UnityTools.ForearmHingeRecorder>() != null)
-                {
-                    throw new InvalidOperationException("대상 Biped에 Forearm Hinge Recorder가 이미 존재합니다.");
-                }
-
-                recorder = targetAnimator.gameObject.AddComponent<YAMO.UnityTools.ForearmHingeBatchRecorder>();
-                recorder.sampleRate = settings.SampleRate;
-                recorder.enableHingeCorrection = settings.EnableHingeCorrection;
-                recorder.hingeAxisIndex = (int)settings.HingeAxis;
-                recorder.handRotationCompensation = settings.HandRotationCompensation;
-                recorder.stateNames = state.Items.Select(item => item.StateName).ToArray();
-                recorder.resultPaths = state.Items.Select(item => item.ResultPath).ToArray();
-
-                SessionState.SetString(StateKey, JsonUtility.ToJson(state));
-                SessionState.SetBool(PendingKey, true);
-                AssetDatabase.SaveAssets();
-                EditorUtility.ClearProgressBar();
-
-                Debug.Log(
-                    $"[Mocap Pipeline] Play Mode Pose Bake 시작: {state.Items.Count}개, " +
-                    $"{state.SampleRate}fps, Hinge={(state.EnableHingeCorrection ? "On" : "Off")}, " +
-                    $"Hand Compensation={state.HandRotationCompensation:0.##}");
-                EditorApplication.isPlaying = true;
+                yield return MocapPoseClipBuilder.Build(item.ResultPath, item.OutputName + (state.EnableHingeCorrection ? "_hinged" : "_baked"),
+                    (message, value) => Progress(state, message, 0.2f + value * 0.3f), value => result = value);
+                yield return null;
+                yield return BipedFbxExportStages.Export(new BipedFbxExportSettings {
+                    TargetRoot = target.gameObject, Clip = result.Clip,
+                    OutputPath = Path.Combine(state.FbxOutputDirectory, item.OutputName + ".fbx"),
+                    StartTime = 0f, Duration = result.Clip.length, FrameRate = state.SampleRate,
+                    RecordBlendShapes = state.RecordBlendShapes, ClampedTangents = state.ClampedTangents,
+                    Compression = (MotionFbxCurveCompression)state.Compression,
+                    ExportGeometry = state.ExportGeometry, ExportUnrendered = state.ExportUnrendered,
+                    KeepInstances = state.KeepInstances, EmbedTextures = state.EmbedTextures,
+                    CreateBackup = state.CreateFbxBackup },
+                    (message, value) => Progress(state, message, 0.5f + value * 0.5f), value => { state.Succeeded++; Save(state); });
             }
-            catch
-            {
-                if (recorder != null)
-                    Object.DestroyImmediate(recorder);
-                targetAnimator.runtimeAnimatorController = ResolveOriginalController(state);
-                if (temporaryController != null ||
-                    !string.IsNullOrEmpty(AssetDatabase.AssetPathToGUID(state.TemporaryControllerPath)))
-                    AssetDatabase.DeleteAsset(state.TemporaryControllerPath);
-                TryDeleteResultDirectory(state.ResultDirectory);
-                SessionState.EraseBool(PendingKey);
-                SessionState.EraseString(StateKey);
-                throw;
-            }
-            finally
-            {
-                EditorUtility.ClearProgressBar();
-            }
+            finally { if (result?.Clip != null) Object.DestroyImmediate(result.Clip); }
+            if (File.Exists(item.ResultPath)) File.Delete(item.ResultPath);
+            state.CurrentIndex++; Save(state);
+            yield return MocapMemoryWork.Reclaim("항목 완료 후 정리");
+            MocapMemoryWork.ContinueWith(() => StartPreparation(state));
         }
-
+        private static bool Progress(RunnerState state, string message, float value)
+        {
+            SetStatus(state, message, value);
+            if (SessionState.GetBool(CancelKey, false)) return true;
+            if (EditorUtility.DisplayCancelableProgressBar("Mocap → Biped FBX", Status, (state.CurrentIndex + value) / Math.Max(1, state.Items.Count)))
+                SessionState.SetBool(CancelKey, true);
+            return SessionState.GetBool(CancelKey, false);
+        }
+        private static void CheckCancelled()
+        {
+            if (SessionState.GetBool(CancelKey, false)) throw new OperationCanceledException("사용자가 Mocap 작업을 취소했습니다.");
+        }
+        private static void SetStatus(RunnerState state, string message, float progress)
+        {
+            SessionState.SetString(StatusKey, $"[{state.CurrentIndex + 1}/{state.Items.Count}] {message}");
+        }
+        private static void Save(RunnerState state)
+        {
+            var json = JsonUtility.ToJson(state);
+            SessionState.SetString(StateKey, json);
+            // A disk checkpoint also identifies completed outputs after a native crash.
+            var path = Path.Combine(state.ResultDirectory, "queue-state.json");
+            File.WriteAllText(path + ".new", json);
+            if (File.Exists(path)) File.Replace(path + ".new", path, null); else File.Move(path + ".new", path);
+        }
+        private static RunnerState ReadState()
+        {
+            var json = SessionState.GetString(StateKey, string.Empty);
+            return string.IsNullOrEmpty(json) ? null : JsonUtility.FromJson<RunnerState>(json);
+        }
+        private static void OnFailure(RunnerState state, Exception exception)
+        {
+            CleanupSceneAndController(state, ResolveTargetAnimator(state));
+            state.AwaitingPlay = false;
+            var item = state.CurrentIndex < state.Items.Count ? state.Items[state.CurrentIndex] : null;
+            state.PreparationErrors.Add((item?.OutputName ?? item?.SourcePath ?? "작업") + ": " + exception.Message);
+            Debug.LogException(exception);
+            if (exception is OperationCanceledException || exception is OutOfMemoryException || exception is InsufficientMemoryException || !state.ContinueOnError)
+            { Finish(state, exception is OperationCanceledException); return; }
+            state.CurrentIndex++; Save(state);
+            EditorApplication.delayCall += () => StartPreparation(state);
+        }
+        private static void Finish(RunnerState state, bool cancelled)
+        {
+            CleanupSceneAndController(state, ResolveTargetAnimator(state));
+            SessionState.EraseBool(PendingKey); SessionState.EraseString(StateKey); SessionState.EraseBool(CancelKey);
+            EditorUtility.ClearProgressBar();
+            if (state.PreparationErrors.Count == 0 && !cancelled) TryDeleteResultDirectory(state.ResultDirectory);
+            else Debug.LogWarning("[Mocap Pipeline] 중단/실패 항목의 녹화 파일과 상태 보관: " + state.ResultDirectory);
+            AssetDatabase.Refresh();
+            if (state.RevealAfterExport && state.Succeeded > 0) EditorUtility.RevealInFinder(state.FbxOutputDirectory);
+            EditorUtility.DisplayDialog("Mocap 파이프라인 " + (cancelled ? "취소" : "완료"),
+                $"성공: {state.Succeeded}개\n실패: {state.PreparationErrors.Count}개\nFBX: {state.FbxOutputDirectory}\n" + string.Join("\n", state.PreparationErrors.Take(8)), "확인");
+        }
         private static RunnerState CreateState(
             MocapPipelineSettings settings,
             Animator targetAnimator,
@@ -150,9 +291,11 @@ namespace YAMO.UnityTools.Editor
             var globalId = GlobalObjectId.GetGlobalObjectIdSlow(targetAnimator.gameObject);
             var originalController = targetAnimator.runtimeAnimatorController;
             var projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-            var resultDirectory = Path.Combine(projectRoot, "Temp", "YamoMocapPipeline", token);
+            var resultDirectory = Path.Combine(projectRoot, "Library", "YamoMocapPipeline", token);
             return new RunnerState
             {
+                SourceFormat = settings.SourceFormat,
+                BindingPolicy = settings.ExistingBindingPolicy,
                 TargetGlobalId = globalId.ToString(),
                 TargetInstanceId = targetAnimator.gameObject.GetInstanceID(),
                 OriginalControllerPath = AssetDatabase.GetAssetPath(originalController),
@@ -177,106 +320,6 @@ namespace YAMO.UnityTools.Editor
             };
         }
 
-        private static void PrepareItems(
-            MocapPipelineSettings settings,
-            IReadOnlyList<MocapPipelineItem> items,
-            RunnerState state,
-            ICollection<AnimationClip> preparedClips)
-        {
-            Directory.CreateDirectory(state.ResultDirectory);
-            Directory.CreateDirectory(state.FbxOutputDirectory);
-            var enabledItems = items.Where(item => item != null && item.Enabled).ToList();
-            var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // Binding names its output after the FBX take, so per-actor exports of one
-            // take all resolve to the same target file. That is worse here than in the
-            // one-shot tool: every item is bound up front and its clip is held until
-            // Play Mode ends, so a later item deleting an earlier item's motion asset
-            // leaves a dangling clip in the temp controller. Plan the names first.
-            var bindingNames = OptiTrackMotionBindingService.PlanAnimationNames(
-                enabledItems.Select(item => AssetDatabase.GetAssetPath(item.SourceFbx)),
-                settings.SourceFormat,
-                out var bindingNameNotes);
-            foreach (var note in bindingNameNotes)
-                Debug.Log($"[MocapPipeline] {note}");
-
-            for (var index = 0; index < enabledItems.Count; index++)
-            {
-                var item = enabledItems[index];
-                try
-                {
-                    if (EditorUtility.DisplayCancelableProgressBar(
-                            "Mocap → Biped FBX",
-                            $"[{index + 1}/{enabledItems.Count}] 입력 모션 준비",
-                            index / (float)Mathf.Max(1, enabledItems.Count)))
-                        throw new OperationCanceledException("Mocap 파이프라인 준비가 취소되었습니다.");
-
-                    var sourcePath = AssetDatabase.GetAssetPath(item.SourceFbx);
-                    AnimationClip sourceClip;
-                    string fallbackOutputName;
-                    if (MocapPipelineSourceUtility.TryGetStandaloneAnimationClip(item.SourceFbx, out sourceClip))
-                    {
-                        fallbackOutputName = Path.GetFileNameWithoutExtension(sourcePath);
-                    }
-                    else
-                    {
-                        if (!MocapPipelineSourceUtility.IsFbxModel(item.SourceFbx))
-                            throw new InvalidOperationException(
-                                $"{item.SourceFbx?.name}: 지원되는 FBX 또는 Anim 에셋이 아닙니다.");
-
-                        // Fail on a wrong-format file before the backup is written.
-                        var formatError = OptiTrackMotionBindingService.ValidateSourceFormat(
-                            sourcePath,
-                            settings.SourceFormat);
-                        if (formatError != null)
-                            throw new InvalidOperationException(formatError);
-
-                        OptiTrackMotionBindingService.EnsureSourceBackup(sourcePath, out _);
-                        bindingNames.TryGetValue(sourcePath, out var plannedBindingName);
-                        var binding = OptiTrackMotionBindingService.Process(
-                            sourcePath,
-                            settings.ExistingBindingPolicy,
-                            plannedBindingName,
-                            settings.SourceFormat);
-                        if (!binding.Succeeded || binding.AnimationClip == null)
-                            throw new InvalidOperationException(
-                                binding.Note ?? $"{settings.SourceFormat.GetLabel()} 바인딩에 실패했습니다.");
-
-                        sourceClip = binding.AnimationClip;
-                        fallbackOutputName = binding.AnimationName;
-                    }
-
-                    ValidateRange(item, sourceClip);
-                    var outputName = MocapPipelineOutputNaming.MakeUnique(
-                        item, fallbackOutputName, sourcePath, usedNames);
-                    var preparedIndex = state.Items.Count;
-                    state.Items.Add(new PreparedItem
-                    {
-                        SourceName = sourceClip.name,
-                        OutputName = outputName,
-                        StateName = $"YAMO_Mocap_{preparedIndex:D4}",
-                        ResultPath = Path.Combine(state.ResultDirectory, $"{preparedIndex:D4}.bin"),
-                        StartTime = item.StartTime,
-                        Duration = item.Duration > 0f
-                            ? item.Duration
-                            : sourceClip.length - item.StartTime
-                    });
-                    preparedClips.Add(sourceClip);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception exception)
-                {
-                    state.PreparationErrors.Add($"{item.SourceFbx?.name ?? $"#{index + 1}"}: {exception.Message}");
-                    Debug.LogException(exception);
-                    if (!settings.ContinueOnError)
-                        break;
-                }
-            }
-        }
-
         private static AnimatorController BuildController(
             string path,
             IReadOnlyList<PreparedItem> items,
@@ -299,118 +342,8 @@ namespace YAMO.UnityTools.Editor
                     stateMachine.defaultState = animatorState;
             }
             EditorUtility.SetDirty(controller);
-            AssetDatabase.SaveAssets();
+            AssetDatabase.SaveAssetIfDirty(controller);
             return controller;
-        }
-
-        private static void OnPlayModeStateChanged(PlayModeStateChange change)
-        {
-            if (change != PlayModeStateChange.EnteredEditMode || !IsRunning)
-                return;
-            EditorApplication.delayCall += FinishAfterPlayMode;
-        }
-
-        private static void FinishAfterPlayMode()
-        {
-            var json = SessionState.GetString(StateKey, string.Empty);
-            SessionState.EraseBool(PendingKey);
-            SessionState.EraseString(StateKey);
-            if (string.IsNullOrEmpty(json))
-            {
-                Debug.LogError("[Mocap Pipeline] Play Mode 복귀 상태를 찾을 수 없습니다.");
-                return;
-            }
-
-            var state = JsonUtility.FromJson<RunnerState>(json);
-            var targetAnimator = ResolveTargetAnimator(state);
-            var errors = new List<string>(state.PreparationErrors ?? new List<string>());
-            var succeeded = 0;
-            try
-            {
-                CleanupSceneAndController(state, targetAnimator);
-                if (targetAnimator == null)
-                    throw new InvalidOperationException("Play Mode 복귀 후 대상 Biped Animator를 찾을 수 없습니다.");
-
-                for (var index = 0; index < state.Items.Count; index++)
-                {
-                    var item = state.Items[index];
-                    ForearmHingeBakeResult hingeResult = null;
-                    try
-                    {
-                        EditorUtility.DisplayProgressBar(
-                            "Mocap → Biped FBX",
-                            $"[{index + 1}/{state.Items.Count}] {item.OutputName} 최종 FBX Export",
-                            index / (float)Mathf.Max(1, state.Items.Count));
-                        hingeResult = ForearmHingeBakeService.LoadPlayModeResult(
-                            item.ResultPath,
-                            state.SampleRate,
-                            item.OutputName + (state.EnableHingeCorrection ? "_hinged" : "_baked"));
-
-                        BipedFbxExportService.Export(
-                            new BipedFbxExportSettings
-                            {
-                                TargetRoot = targetAnimator.gameObject,
-                                Clip = hingeResult.Clip,
-                                OutputPath = Path.Combine(state.FbxOutputDirectory, item.OutputName + ".fbx"),
-                                StartTime = item.StartTime,
-                                Duration = item.Duration,
-                                FrameRate = state.SampleRate,
-                                RecordBlendShapes = state.RecordBlendShapes,
-                                ClampedTangents = state.ClampedTangents,
-                                Compression = (MotionFbxCurveCompression)state.Compression,
-                                ExportGeometry = state.ExportGeometry,
-                                ExportUnrendered = state.ExportUnrendered,
-                                UseCompatibleNames = false,
-                                KeepInstances = state.KeepInstances,
-                                EmbedTextures = state.EmbedTextures,
-                                CreateBackup = state.CreateFbxBackup
-                            },
-                            (message, progress) =>
-                            {
-                                EditorUtility.DisplayProgressBar(
-                                    "Mocap → Biped FBX",
-                                    $"[{index + 1}/{state.Items.Count}] {message}",
-                                    (index + progress) / Mathf.Max(1, state.Items.Count));
-                                return false;
-                            });
-                        succeeded++;
-                    }
-                    catch (Exception exception)
-                    {
-                        errors.Add($"{item.OutputName}: {exception.Message}");
-                        Debug.LogException(exception);
-                        if (!state.ContinueOnError)
-                            break;
-                    }
-                    finally
-                    {
-                        if (hingeResult?.Clip != null)
-                            Object.DestroyImmediate(hingeResult.Clip);
-                    }
-                }
-            }
-            catch (Exception exception)
-            {
-                errors.Add(exception.Message);
-                Debug.LogException(exception);
-            }
-            finally
-            {
-                CleanupSceneAndController(state, targetAnimator);
-                TryDeleteResultDirectory(state.ResultDirectory);
-                EditorUtility.ClearProgressBar();
-                AssetDatabase.Refresh();
-            }
-
-            if (state.RevealAfterExport && succeeded > 0)
-                EditorUtility.RevealInFinder(state.FbxOutputDirectory);
-            var details = errors.Count == 0
-                ? string.Empty
-                : "\n\n오류:\n" + string.Join("\n", errors.Take(8));
-            EditorUtility.DisplayDialog(
-                "Mocap 파이프라인 완료 (Play Mode)",
-                $"성공: {succeeded}개\n실패: {errors.Count}개\nFBX: {state.FbxOutputDirectory}{details}",
-                "확인");
         }
 
         private static Animator ResolveTargetAnimator(RunnerState state)
@@ -458,7 +391,7 @@ namespace YAMO.UnityTools.Editor
             if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
                 return;
             var projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-            var allowedRoot = Path.GetFullPath(Path.Combine(projectRoot, "Temp", "YamoMocapPipeline"));
+            var allowedRoot = Path.GetFullPath(Path.Combine(projectRoot, "Library", "YamoMocapPipeline"));
             var fullPath = Path.GetFullPath(path);
             if (!fullPath.StartsWith(allowedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"임시 결과 폴더 범위를 벗어났습니다: {fullPath}");
@@ -476,6 +409,8 @@ namespace YAMO.UnityTools.Editor
                 throw new InvalidOperationException("대상 Biped에 유효한 Humanoid Animator가 필요합니다.");
             if (settings.SampleRate <= 0)
                 throw new InvalidOperationException("Sample Rate는 0보다 커야 합니다.");
+            if (settings.HingeBakeMode == MocapHingeBakeMode.PlayMode && !settings.TargetAnimator.isActiveAndEnabled)
+                throw new InvalidOperationException("Play Mode 녹화 대상 Animator를 활성화하세요.");
             if (string.IsNullOrWhiteSpace(settings.FbxOutputDirectory))
                 throw new InvalidOperationException("FBX 출력 폴더를 지정하세요.");
             if (items == null || !items.Any(item => item != null && item.Enabled && item.SourceFbx != null))
@@ -497,12 +432,5 @@ namespace YAMO.UnityTools.Editor
                 throw new InvalidOperationException($"{clip.name}: 출력 구간이 클립 범위를 벗어났습니다.");
         }
 
-        private static void ShowNoPreparedItems(IReadOnlyList<string> errors)
-        {
-            var detail = errors == null || errors.Count == 0
-                ? "처리 가능한 항목이 없습니다."
-                : string.Join("\n", errors.Take(8));
-            EditorUtility.DisplayDialog("Mocap 파이프라인 실패", detail, "확인");
-        }
     }
 }

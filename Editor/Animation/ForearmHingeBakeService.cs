@@ -188,6 +188,18 @@ namespace YAMO.UnityTools.Editor
             if (sampleRate <= 0)
                 throw new ArgumentOutOfRangeException(nameof(sampleRate));
 
+            using (var probe = new BinaryReader(File.OpenRead(resultsPath)))
+            {
+                if (probe.ReadInt32() == YAMO.UnityTools.MocapPoseStream.Magic)
+                {
+                    ForearmHingeBakeResult result = null;
+                    var routine = MocapPoseClipBuilder.Build(resultsPath, clipName, null, value => result = value);
+                    try { while (routine.MoveNext()) { } }
+                    finally { (routine as IDisposable)?.Dispose(); }
+                    return result;
+                }
+            }
+
             using (var reader = new BinaryReader(File.Open(resultsPath, FileMode.Open, FileAccess.Read, FileShare.Read)))
             {
                 var frameCount = reader.ReadInt32();
@@ -327,7 +339,6 @@ namespace YAMO.UnityTools.Editor
 
                 if (!positionAnimated)
                 {
-                    // Preserve fixed bone offsets explicitly through FBX export.
                     var p = positionValues[0];
                     clip.SetCurve(path, typeof(Transform), "localPosition.x", AnimationCurve.Constant(0f, sampleTimes[sampleTimes.Count - 1], p.x));
                     clip.SetCurve(path, typeof(Transform), "localPosition.y", AnimationCurve.Constant(0f, sampleTimes[sampleTimes.Count - 1], p.y));
@@ -399,7 +410,6 @@ namespace YAMO.UnityTools.Editor
 
                 if (!positionAnimated)
                 {
-                    // Preserve fixed bone offsets explicitly through FBX export.
                     var p = positions[bone][0];
                     clip.SetCurve(path, typeof(Transform), "localPosition.x", AnimationCurve.Constant(0f, (frameCount - 1) / (float)sampleRate, p.x));
                     clip.SetCurve(path, typeof(Transform), "localPosition.y", AnimationCurve.Constant(0f, (frameCount - 1) / (float)sampleRate, p.y));

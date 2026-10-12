@@ -571,3 +571,10 @@ namespace YAMO.UnityTools.Editor
 ---
 
 **이 문서 업데이트 원칙**: 스크립트 추가·제거·이름 변경하면 §2(폴더 구조)와 §5(상세 해설)에 즉시 반영. asmdef 변경은 §3, 의존성 변경은 §4, 컨벤션은 §6, 변경이 누적되면 §9 에 한 줄 추가.
+
+
+## Mocap 파이프라인 메모리 개선 (2026-10-12)
+
+OptiTrack/MMRP 공통 파이프라인은 한 모션씩 준비, 디스크 포즈 녹화, 본별 클립 생성, Unity FBX 출력, 메모리 정리, Max 좌표 변환 순서로 처리한다. MocapPoseStream, MocapPoseClipBuilder, MocapEditPoseRecorder, MocapMemoryWork, BipedFbxExportStages가 각 단계를 담당하며, 취소와 오류 체크포인트를 지원한다. 고정된 본 위치도 상수 커브로 보존한다.
+
+Milfy 및 Rurune Biped 템플릿을 추가하고 Sompunch 템플릿을 갱신했다. 고정 본 위치는 달타 51개 본의 FBX 출력 및 재임포트로 검증했으며, 장시간 다중 모션의 메모리 스트레스 검증은 별도로 필요하다.

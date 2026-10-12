@@ -66,7 +66,8 @@ namespace YAMO.UnityTools.Editor
             try
             {
                 ThrowIfCancelled(progressCallback, "Biped 복제본 준비", 0.02f);
-                clone = CreateSamplingClone(settings.TargetRoot);
+                clone = CreateSamplingClone(settings.TargetRoot,
+                    settings.ExportGeometry || settings.RecordBlendShapes || !settings.ExportUnrendered);
                 bakedClip = BakeClip(
                     clone,
                     settings,
@@ -121,7 +122,7 @@ namespace YAMO.UnityTools.Editor
             finally
             {
                 if (controller != null)
-                    Object.DestroyImmediate(controller);
+                    DestroyTransientController(controller);
                 if (bakedClip != null)
                     Object.DestroyImmediate(bakedClip);
                 if (clone != null)
@@ -155,6 +156,9 @@ namespace YAMO.UnityTools.Editor
             out int sampleCount)
         {
             var recorder = new GameObjectRecorder(samplingRoot);
+            AnimationClip clip = null;
+            try
+            {
             recorder.BindComponentsOfType(samplingRoot, typeof(Transform), true);
             if (settings.RecordBlendShapes)
                 recorder.BindComponentsOfType(samplingRoot, typeof(SkinnedMeshRenderer), true);
@@ -206,7 +210,7 @@ namespace YAMO.UnityTools.Editor
                 $"[Mocap Pipeline] Final bake 샘플링 완료: " +
                 $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
 
-            var clip = new AnimationClip { frameRate = settings.FrameRate };
+            clip = new AnimationClip { frameRate = settings.FrameRate, hideFlags = HideFlags.HideAndDontSave };
             ThrowIfCancelled(progressCallback, $"{settings.Clip.name}: AnimationClip 커브 생성", 0.99f);
             stageTimer.Restart();
             recorder.SaveToClip(clip, settings.FrameRate, GetCurveFilterOptions(settings.Compression));
@@ -221,33 +225,68 @@ namespace YAMO.UnityTools.Editor
                     $"[Mocap Pipeline] ClampedAuto 탄젠트 완료: " +
                     $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
             }
-            return clip;
+            var resultClip = clip; clip = null;
+            return resultClip;
+            }
+            finally
+            {
+                recorder.ResetRecording(); Object.DestroyImmediate(recorder);
+                if (clip != null) Object.DestroyImmediate(clip);
+            }
         }
 
-        private static GameObject CreateSamplingClone(GameObject source)
+        internal static GameObject CreateSamplingClone(GameObject source, bool includeGeometry)
         {
-            var clone = Object.Instantiate(source);
-            clone.name = source.name;
-            clone.transform.SetParent(null, true);
-            clone.SetActive(true);
-            foreach (var transform in clone.GetComponentsInChildren<Transform>(true))
-                transform.gameObject.hideFlags = HideFlags.HideAndDontSave;
+            GameObject clone;
+            if (includeGeometry)
+            {
+                clone = Object.Instantiate(source);
+                clone.transform.SetParent(null, true);
+                foreach (var behaviour in clone.GetComponentsInChildren<Behaviour>(true)) behaviour.enabled = false;
+            }
+            else
+            {
+                clone = new GameObject(source.name);
+                clone.transform.SetPositionAndRotation(source.transform.position, source.transform.rotation);
+                clone.transform.localScale = source.transform.lossyScale;
+                var map = new System.Collections.Generic.Dictionary<Transform, Transform> { [source.transform] = clone.transform };
+                foreach (var original in source.GetComponentsInChildren<Transform>(true))
+                {
+                    if (original == source.transform) continue;
+                    var child = new GameObject(original.name).transform;
+                    child.SetParent(map[original.parent], false);
+                    child.localPosition = original.localPosition;
+                    child.localRotation = original.localRotation;
+                    child.localScale = original.localScale;
+                    map[original] = child;
+                }
+            }
+            clone.name = source.name; clone.SetActive(true);
+            foreach (var transform in clone.GetComponentsInChildren<Transform>(true)) transform.gameObject.hideFlags = HideFlags.HideAndDontSave;
             foreach (var childAnimator in clone.GetComponentsInChildren<Animator>(true))
             {
-                childAnimator.runtimeAnimatorController = null;
-                // Forearm Hinge 결과는 Humanoid muscle clip이 아니라 Biped 경로에
-                // 직접 기록된 Transform 커브다. Avatar를 유지하면 최종 재샘플링과
-                // FBX Export 단계에서 Humanoid로 다시 해석되어 포즈가 무너질 수 있다.
-                // 원본이 아닌 이 임시 복제본에서만 Generic 상태로 전환한다.
-                childAnimator.avatar = null;
-                childAnimator.applyRootMotion = false;
-                childAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
-                childAnimator.enabled = true;
+                childAnimator.runtimeAnimatorController = null; childAnimator.avatar = null;
+                childAnimator.applyRootMotion = false; childAnimator.enabled = true;
             }
+            var animator = clone.GetComponent<Animator>();
+            if (animator == null) animator = clone.AddComponent<Animator>();
+            animator.runtimeAnimatorController = null; animator.avatar = null;
+            animator.applyRootMotion = false; animator.cullingMode = AnimatorCullingMode.AlwaysAnimate; animator.enabled = true;
             return clone;
         }
 
-        private static AnimatorController AttachSingleClipController(GameObject root, AnimationClip clip)
+        internal static void DestroyTransientController(AnimatorController controller)
+        {
+            if (controller == null) return;
+            foreach (var layer in controller.layers)
+            {
+                foreach (var state in layer.stateMachine.states) if (state.state != null) Object.DestroyImmediate(state.state);
+                Object.DestroyImmediate(layer.stateMachine);
+            }
+            Object.DestroyImmediate(controller);
+        }
+
+        internal static AnimatorController AttachSingleClipController(GameObject root, AnimationClip clip)
         {
             var animator = root.GetComponent<Animator>();
             if (animator == null)
@@ -296,7 +335,7 @@ namespace YAMO.UnityTools.Editor
             }
         }
 
-        private static void Validate(BipedFbxExportSettings settings)
+        internal static void Validate(BipedFbxExportSettings settings)
         {
             if (settings == null)
                 throw new ArgumentNullException(nameof(settings));
@@ -330,7 +369,7 @@ namespace YAMO.UnityTools.Editor
             return string.IsNullOrWhiteSpace(value) ? "Animation" : value.Trim();
         }
 
-        private static string ReplaceTarget(string sourcePath, string targetPath, bool keepBackup)
+        internal static string ReplaceTarget(string sourcePath, string targetPath, bool keepBackup)
         {
             if (!File.Exists(targetPath))
             {
@@ -361,7 +400,7 @@ namespace YAMO.UnityTools.Editor
                 throw new OperationCanceledException("FBX Export가 취소되었습니다.");
         }
 
-        private static void DeleteTemporaryFile(string path)
+        internal static void DeleteTemporaryFile(string path)
         {
             if (!string.IsNullOrEmpty(path) && File.Exists(path))
                 File.Delete(path);

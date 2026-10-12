@@ -30,6 +30,7 @@ namespace YAMO.UnityTools.Editor
     {
         public bool Enabled = true;
         public Object SourceFbx;
+        [HideInInspector] public string SourceAssetPath;
         [Min(0f)] public float StartTime;
         [Min(0f)] public float Duration;
         public string OutputName;
@@ -82,6 +83,8 @@ namespace YAMO.UnityTools.Editor
             IReadOnlyList<MocapPipelineItem> items,
             Func<string, float, bool> progressCallback = null)
         {
+            if (MocapToBipedFbxPlayModeRunner.IsRunning)
+                throw new InvalidOperationException("이미 Mocap 대기열이 실행 중입니다.");
             ValidateSettings(settings, items);
             Directory.CreateDirectory(Path.GetFullPath(settings.FbxOutputDirectory));
 
