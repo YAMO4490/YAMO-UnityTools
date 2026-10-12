@@ -326,7 +326,14 @@ namespace YAMO.UnityTools.Editor
                 }
 
                 if (!positionAnimated)
+                {
+                    // Preserve fixed bone offsets explicitly through FBX export.
+                    var p = positionValues[0];
+                    clip.SetCurve(path, typeof(Transform), "localPosition.x", AnimationCurve.Constant(0f, sampleTimes[sampleTimes.Count - 1], p.x));
+                    clip.SetCurve(path, typeof(Transform), "localPosition.y", AnimationCurve.Constant(0f, sampleTimes[sampleTimes.Count - 1], p.y));
+                    clip.SetCurve(path, typeof(Transform), "localPosition.z", AnimationCurve.Constant(0f, sampleTimes[sampleTimes.Count - 1], p.z));
                     continue;
+                }
 
                 var positionX = new AnimationCurve();
                 var positionY = new AnimationCurve();
@@ -391,7 +398,14 @@ namespace YAMO.UnityTools.Editor
                 }
 
                 if (!positionAnimated)
+                {
+                    // Preserve fixed bone offsets explicitly through FBX export.
+                    var p = positions[bone][0];
+                    clip.SetCurve(path, typeof(Transform), "localPosition.x", AnimationCurve.Constant(0f, (frameCount - 1) / (float)sampleRate, p.x));
+                    clip.SetCurve(path, typeof(Transform), "localPosition.y", AnimationCurve.Constant(0f, (frameCount - 1) / (float)sampleRate, p.y));
+                    clip.SetCurve(path, typeof(Transform), "localPosition.z", AnimationCurve.Constant(0f, (frameCount - 1) / (float)sampleRate, p.z));
                     continue;
+                }
 
                 var positionX = new AnimationCurve();
                 var positionY = new AnimationCurve();
