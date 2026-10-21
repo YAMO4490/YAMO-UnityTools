@@ -1,6 +1,6 @@
 // YamoAssetChecker — 아바타/씬 자산을 점검·정리하는 통합 EditorWindow.
 //
-// 하위 탭: 네이밍 도구 (1–2) / 검사도구 (1–5) / 부가 도구 (1–4).
+// 하위 탭: 네이밍 도구 (1–2) / 검사도구 (1–5) / 부가 도구 (1–5).
 // 각 탭에서 번호를 1부터 시작하며, 각 섹션의 폴드아웃을 유지한다.
 //   네이밍 도구 1) Object Name Tools        — 일괄 이름 변경, 자식 정렬, 휴머노이드 스케일 점검
 //   네이밍 도구 2) Duplicate Names          — 중복 이름 검출 + 자동 리네임
@@ -11,6 +11,7 @@
 //   검사도구 2) Smart Empty Object Cleaner — SMR 미참조 빈 오브젝트 정리
 //   검사도구 3) Inactive Object Finder   — 비활성 오브젝트 탐색
 //   부가 도구 4) Magica Collider Symmetry Fixer — Biped 아바타의 빈 Symmetry Target 을 반대편 Primary 본으로 지정
+//   부가 도구 5) MagicaCloth 컴포넌트 분할 — 스택된 Cloth를 설정과 참조를 유지하며 개별 오브젝트로 분리
 //   검사도구 4) Boneless SMR Fixer       — 본이 없는 SMR(익스포트 시 소실) 검출 + 본 생성·100% 스키닝
 //
 // 코어 로직은 YamoAssetCheckerCore.cs 의 정적 메서드를 호출.
@@ -103,6 +104,11 @@ namespace YAMO.UnityTools.Editor
         private bool _magicaSymmetryScanned = false;
         private Vector2 _magicaSymmetryScroll;
 
+        private bool _foldMagicaSplitter = true;
+        [SerializeField] private GameObject _magicaSplitterRoot;
+        private MagicaClothComponentSplitter.Report _magicaSplitterReport;
+        private string _magicaSplitterMessage;
+
         // ---- 검사도구 4: Boneless SMR Fixer ----
         private bool _foldBonelessSmr = true;
         private GameObject _bonelessSmrScanSelection;   // null = 씬 전체 스캔
@@ -177,6 +183,7 @@ namespace YAMO.UnityTools.Editor
                     DrawMissingBonesSection();         // 2
                     DrawHumanoidExtractorSection();    // 3
                     DrawMagicaSymmetrySection();        // 4
+                    DrawMagicaSplitterSection();        // 5
                     break;
             }
 
@@ -810,8 +817,75 @@ namespace YAMO.UnityTools.Editor
         }
 
         // ============================================================
-        // 부가 도구 4: Magica Collider Symmetry Fixer
+        // 부가 도구 5: MagicaCloth 컴포넌트 분할
         // ============================================================
+        private void DrawMagicaSplitterSection()
+        {
+            DrawSeparator();
+            _foldMagicaSplitter = EditorGUILayout.Foldout(_foldMagicaSplitter,
+                "5. MagicaCloth 컴포넌트 분할", true, EditorStyles.foldoutHeader);
+            if (!_foldMagicaSplitter) return;
+            EditorGUILayout.HelpBox(
+                "한 오브젝트에 여러 개 붙은 MagicaCloth2를 오브젝트당 하나씩 분리합니다.\n" +
+                "첫 컴포넌트는 남기고 나머지는 같은 부모 아래에 생성합니다. 설정·본·콜라이더 참조와 활성 상태를 유지하며, Undo로 되돌릴 수 있습니다.",
+                MessageType.None);
+            EditorGUI.BeginChangeCheck();
+            _magicaSplitterRoot = (GameObject)EditorGUILayout.ObjectField(
+                "대상 아바타", _magicaSplitterRoot, typeof(GameObject), true);
+            if (EditorGUI.EndChangeCheck())
+            {
+                _magicaSplitterReport = null;
+                _magicaSplitterMessage = null;
+            }
+            using (new EditorGUI.DisabledScope(_magicaSplitterRoot == null ||
+                EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling))
+            {
+                if (GUILayout.Button("스캔"))
+                {
+                    _magicaSplitterReport = MagicaClothComponentSplitter.Scan(_magicaSplitterRoot);
+                    _magicaSplitterMessage = null;
+                }
+            }
+            var report = _magicaSplitterReport;
+            if (report != null)
+            {
+                if (!string.IsNullOrEmpty(report.Error))
+                    EditorGUILayout.HelpBox(report.Error, MessageType.Warning);
+                else
+                {
+                    EditorGUILayout.LabelField($"전체 Cloth {report.TotalCloths}개 / 중복 오브젝트 {report.Stacks.Count}개 / 새 오브젝트 {report.NewObjectCount}개");
+                    foreach (var stack in report.Stacks)
+                        EditorGUILayout.ObjectField($"{stack.ComponentCount}개 → 개별 분리", stack.Host, typeof(GameObject), true);
+                    if (report.Stacks.Count == 0)
+                        EditorGUILayout.HelpBox("분리할 중복 컴포넌트가 없습니다.", MessageType.Info);
+                }
+                foreach (var warning in report.Warnings)
+                    EditorGUILayout.HelpBox(warning, MessageType.Warning);
+            }
+            using (new EditorGUI.DisabledScope(report == null || !report.CanSplit ||
+                EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling))
+            {
+                if (GUILayout.Button("분할 실행"))
+                {
+                    try
+                    {
+                        var result = MagicaClothComponentSplitter.Split(_magicaSplitterRoot);
+                        _magicaSplitterMessage = $"{result.SplitHosts}개 오브젝트의 Cloth를 분리했습니다. 새 오브젝트 {result.CreatedObjects}개, 참조 갱신 {result.UpdatedReferences}개. 씬을 저장하세요.";
+                        _magicaSplitterReport = MagicaClothComponentSplitter.Scan(_magicaSplitterRoot);
+                    }
+                    catch (System.Exception exception)
+                    {
+                        _magicaSplitterMessage = "분할 실패: " + exception.Message;
+                        Debug.LogException(exception);
+                        _magicaSplitterReport = MagicaClothComponentSplitter.Scan(_magicaSplitterRoot);
+                    }
+                }
+            }
+            if (!string.IsNullOrEmpty(_magicaSplitterMessage))
+                EditorGUILayout.HelpBox(_magicaSplitterMessage, MessageType.Info);
+        }
+
+        // 부가 도구 4: Magica Collider Symmetry Fixer
         private void DrawMagicaSymmetrySection()
         {
             DrawSeparator();
