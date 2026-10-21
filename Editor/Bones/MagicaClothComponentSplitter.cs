@@ -40,19 +40,33 @@ namespace YAMO.UnityTools.Editor
         {
             public Component Source;
             public Component Target;
+            public Dictionary<string, Object> SelfReferences;
+        }
+
+        private sealed class Reference
+        {
+            public string Path;
+            public Object Value;
+            public string Id;
         }
 
         private const string ClothTypeName = "MagicaCloth2.MagicaCloth";
-        private static readonly Regex InstanceId = new Regex("\"instanceID\":(-?[0-9]+)");
+        private static readonly Regex InstanceId = new Regex("\"instanceID\":-?[0-9]+");
 
         private static Type FindClothType()
         {
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                var type = assembly.GetType(ClothTypeName, false);
-                if (type != null && typeof(Component).IsAssignableFrom(type)) return type;
-            }
+            foreach (var type in TypeCache.GetTypesDerivedFrom<Component>())
+                if (type.FullName == ClothTypeName) return type;
             return null;
+        }
+
+        private static string ReferenceId(SerializedProperty property)
+        {
+#if UNITY_6000_3_OR_NEWER
+            return EntityId.ToULong(property.objectReferenceEntityIdValue).ToString();
+#else
+            return property.objectReferenceInstanceIDValue.ToString();
+#endif
         }
 
         public static Report Scan(GameObject root)
@@ -79,7 +93,7 @@ namespace YAMO.UnityTools.Editor
                 var properties = new SerializedObject(component).GetIterator();
                 while (properties.Next(true))
                     if (properties.propertyType == SerializedPropertyType.ObjectReference &&
-                        properties.objectReferenceValue == null && properties.objectReferenceInstanceIDValue != 0)
+                        properties.objectReferenceValue == null && ReferenceId(properties) != "0")
                         missingReferences++;
                 if (!hosts.Add(component.gameObject)) continue;
                 int count = component.GetComponents(type).Length;
@@ -103,11 +117,21 @@ namespace YAMO.UnityTools.Editor
 
             var type = FindClothType();
             var originals = new Dictionary<Component, string>();
+            var references = new Dictionary<Component, List<Reference>>();
             foreach (var component in root.GetComponentsInChildren(type, true))
+            {
                 originals.Add(component, EditorJsonUtility.ToJson(component));
+                var entries = new List<Reference>();
+                var property = new SerializedObject(component).GetIterator();
+                while (property.Next(true))
+                    if (property.propertyType == SerializedPropertyType.ObjectReference)
+                        entries.Add(new Reference { Path = property.propertyPath,
+                            Value = property.objectReferenceValue, Id = ReferenceId(property) });
+                references.Add(component, entries);
+            }
             var moves = new List<Move>();
             var replacements = new Dictionary<Object, Object>();
-            var reverseIds = new Dictionary<int, int>();
+            var movedTargets = new Dictionary<Component, Move>();
             Undo.IncrementCurrentGroup();
             int group = Undo.GetCurrentGroup();
             Undo.SetCurrentGroupName("Split MagicaCloth Components");
@@ -120,8 +144,10 @@ namespace YAMO.UnityTools.Editor
                     for (int i = 1; i < components.Length; i++)
                     {
                         var go = new GameObject(UniqueSiblingName(host, i + 1));
-                        Undo.RegisterCreatedObjectUndo(go, "Create Cloth Object");
                         SceneManager.MoveGameObjectToScene(go, host.scene);
+                        // Register in the destination scene so Redo does not recreate the
+                        // object in whichever scene happened to be active at construction.
+                        Undo.RegisterCreatedObjectUndo(go, "Create Cloth Object");
                         go.transform.SetParent(host.transform.parent, false);
                         go.transform.localPosition = host.transform.localPosition;
                         go.transform.localRotation = host.transform.localRotation;
@@ -133,12 +159,11 @@ namespace YAMO.UnityTools.Editor
                         go.SetActive(host.activeSelf);
                         var clone = Undo.AddComponent(go, components[i].GetType());
                         EditorUtility.CopySerialized(components[i], clone);
-                        moves.Add(new Move { Source = components[i], Target = clone });
+                        var move = new Move { Source = components[i], Target = clone,
+                            SelfReferences = RelocateSelfReferences(clone, host, go) };
+                        moves.Add(move);
+                        movedTargets.Add(clone, move);
                         replacements.Add(components[i], clone);
-                        reverseIds.Add(clone.GetInstanceID(), components[i].GetInstanceID());
-                        reverseIds.Add(go.GetInstanceID(), host.GetInstanceID());
-                        reverseIds.Add(go.transform.GetInstanceID(), host.transform.GetInstanceID());
-                        RelocateSelfReferences(clone, host, go);
                     }
                 }
 
@@ -170,13 +195,27 @@ namespace YAMO.UnityTools.Editor
                 {
                     var target = replacements.TryGetValue(original.Key, out var replacement)
                         ? (Component)replacement : original.Key;
-                    string normalized = InstanceId.Replace(EditorJsonUtility.ToJson(target), match =>
-                    {
-                        int id = int.Parse(match.Groups[1].Value);
-                        return "\"instanceID\":" + (reverseIds.TryGetValue(id, out var oldId) ? oldId : id);
-                    });
-                    if (normalized != original.Value)
+                    // Compare non-reference data independently of Unity's ID representation.
+                    // Then compare every reference by identity (including existing missing IDs).
+                    string normalized = InstanceId.Replace(EditorJsonUtility.ToJson(target), "\"instanceID\":0");
+                    if (normalized != InstanceId.Replace(original.Value, "\"instanceID\":0"))
                         throw new InvalidOperationException($"설정 검증 실패: {target.name}. 변경을 되돌렸습니다.");
+                    var serialized = new SerializedObject(target);
+                    foreach (var reference in references[original.Key])
+                    {
+                        var property = serialized.FindProperty(reference.Path);
+                        Object expected = reference.Value;
+                        if (expected != null && replacements.TryGetValue(expected, out var newReference))
+                            expected = newReference;
+                        if (movedTargets.TryGetValue(target, out var move))
+                        {
+                            if (reference.Path == "m_GameObject") expected = target.gameObject;
+                            else if (move.SelfReferences.TryGetValue(reference.Path, out var self)) expected = self;
+                        }
+                        if (property == null || property.objectReferenceValue != expected ||
+                            (expected == null && ReferenceId(property) != reference.Id))
+                            throw new InvalidOperationException($"참조 검증 실패: {target.name} / {reference.Path}");
+                    }
                 }
                 foreach (var move in moves) Undo.DestroyObjectImmediate(move.Source);
                 foreach (var stack in report.Stacks)
@@ -201,8 +240,9 @@ namespace YAMO.UnityTools.Editor
             }
         }
 
-        private static void RelocateSelfReferences(Component clone, GameObject host, GameObject target)
+        private static Dictionary<string, Object> RelocateSelfReferences(Component clone, GameObject host, GameObject target)
         {
+            var changed = new Dictionary<string, Object>();
             var serialized = new SerializedObject(clone);
             bool hostIsRootBone = false;
             var roots = serialized.FindProperty("serializeData.rootBones");
@@ -218,10 +258,13 @@ namespace YAMO.UnityTools.Editor
                 // they happen to point to the host. Only relocate private host-space caches.
                 if (!property.propertyPath.StartsWith("serializeData2.", StringComparison.Ordinal)) continue;
                 if (hostIsRootBone && property.propertyPath != "serializeData2.initData.clothTransformRecord.transform") continue;
-                if (property.objectReferenceValue == host.transform) property.objectReferenceValue = target.transform;
-                else if (property.objectReferenceValue == host) property.objectReferenceValue = target;
+                if (property.objectReferenceValue == host.transform)
+                { property.objectReferenceValue = target.transform; changed.Add(property.propertyPath, target.transform); }
+                else if (property.objectReferenceValue == host)
+                { property.objectReferenceValue = target; changed.Add(property.propertyPath, target); }
             }
             serialized.ApplyModifiedPropertiesWithoutUndo();
+            return changed;
         }
 
         private static string UniqueSiblingName(GameObject host, int index)

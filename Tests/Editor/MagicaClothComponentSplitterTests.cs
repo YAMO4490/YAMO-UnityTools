@@ -18,8 +18,8 @@ namespace YAMO.UnityTools.Editor.Tests
         [SetUp]
         public void SetUp()
         {
-            clothType = AppDomain.CurrentDomain.GetAssemblies()
-                .Select(a => a.GetType("MagicaCloth2.MagicaCloth", false)).FirstOrDefault(t => t != null);
+            clothType = TypeCache.GetTypesDerivedFrom<Component>()
+                .FirstOrDefault(t => t.FullName == "MagicaCloth2.MagicaCloth");
             if (clothType == null) Assert.Ignore("MagicaCloth2 is optional.");
             scene = EditorSceneManager.NewPreviewScene();
             root = Create("Avatar");
