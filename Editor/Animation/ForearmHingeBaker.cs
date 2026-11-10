@@ -47,13 +47,13 @@ namespace YAMO.UnityTools.Editor
             int    sampleRate  = SessionState.GetInt(K_RATE, 30);
             string tmpCtrlPath = SessionState.GetString(K_TMPCTRL, "");
             string origCtrlPath= SessionState.GetString(K_ORIGCTRL, "");
-            int    goInstanceID= SessionState.GetInt(K_GOID, 0);
+            int goInstanceID; int.TryParse(SessionState.GetString(K_GOID, string.Empty), out goInstanceID);
 
             // SessionState 초기화
             SessionState.EraseBool(K_PENDING);
             SessionState.EraseString(K_NEWPATH);
             SessionState.EraseInt(K_RATE);
-            SessionState.EraseInt(K_GOID);
+            SessionState.EraseString(K_GOID);
             SessionState.EraseString(K_TMPCTRL);
             SessionState.EraseString(K_ORIGCTRL);
 
@@ -92,6 +92,10 @@ namespace YAMO.UnityTools.Editor
     // ================================================================
     // EditorWindow
     // ================================================================
+    // Open editor window identity must survive its Play Mode bake round trip.
+#if UNITY_7000_0_OR_NEWER
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+#endif
     public class ForearmHingeBaker : EditorWindow
     {
         private static ForearmHingeBaker _instance;
@@ -100,7 +104,7 @@ namespace YAMO.UnityTools.Editor
         AnimationClip sourceClip;
         int           sampleRate = 30;
         bool          enableHingeCorrection = true;
-        float         handRotationCompensation = 1f;
+        float         handRotationCompensation = 0.5f;
 
         enum HingeAxis { X, Y, Z }
         HingeAxis hingeAxis = HingeAxis.Z;
@@ -335,7 +339,7 @@ namespace YAMO.UnityTools.Editor
             SessionState.SetBool  ("YAMO.ForearmHinge.PendingBake",     true);
             SessionState.SetString("YAMO.ForearmHinge.NewClipPath",     DetermineNewClipPath(sourceClip));
             SessionState.SetInt   ("YAMO.ForearmHinge.SampleRate",      sampleRate);
-            SessionState.SetInt   ("YAMO.ForearmHinge.AnimGOInstanceID",animator.gameObject.GetInstanceID());
+            SessionState.SetString("YAMO.ForearmHinge.AnimGOInstanceID",animator.gameObject.GetInstanceID().ToString());
             SessionState.SetString("YAMO.ForearmHinge.TempCtrlPath",   TempCtrlPath);
             SessionState.SetString("YAMO.ForearmHinge.OrigCtrlPath",   origCtrlPath);
 

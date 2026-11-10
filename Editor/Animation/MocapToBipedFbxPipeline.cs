@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,7 +30,6 @@ namespace YAMO.UnityTools.Editor
     {
         public bool Enabled = true;
         public Object SourceFbx;
-        [HideInInspector] public string SourceAssetPath;
         [Min(0f)] public float StartTime;
         [Min(0f)] public float Duration;
         public string OutputName;
@@ -44,10 +43,11 @@ namespace YAMO.UnityTools.Editor
         /// <summary>Skeleton convention of every FBX in the queue (one per run/tab).</summary>
         public MocapSourceFormat SourceFormat { get; set; } = MocapSourceFormat.OptiTrack;
         public int SampleRate { get; set; } = 60;
+        public MocapArmChainSettings ArmChain { get; set; } = new MocapArmChainSettings();
         public MocapHingeBakeMode HingeBakeMode { get; set; } = MocapHingeBakeMode.PlayMode;
         public bool EnableHingeCorrection { get; set; } = true;
         public ForearmHingeAxis HingeAxis { get; set; } = ForearmHingeAxis.Z;
-        public float HandRotationCompensation { get; set; } = 1f;
+        public float HandRotationCompensation { get; set; } = 0.5f;
         public ExistingMotionAssetPolicy ExistingBindingPolicy { get; set; } = ExistingMotionAssetPolicy.Fail;
         public bool RecordBlendShapes { get; set; }
         public bool ClampedTangents { get; set; }
@@ -68,13 +68,14 @@ namespace YAMO.UnityTools.Editor
         public bool SourceBackupCreated { get; internal set; }
         public OptiTrackMotionBindingResult Binding { get; internal set; }
         public BipedFbxExportResult FbxExport { get; internal set; }
+        public MocapArmChainResult ArmChain { get; internal set; }
         public string Error { get; internal set; }
         public bool Succeeded => Stage == MocapPipelineStage.Completed;
     }
 
     /// <summary>
     /// One-click synchronous pipeline: FBX backup/binding or direct .anim input ->
-    /// in-memory 60 fps forearm hinge -> Biped FBX bake -> Max conversion.
+    /// in-memory transform/forearm bake -> Biped FBX export within Unity.
     /// </summary>
     public static class MocapToBipedFbxPipeline
     {
@@ -83,8 +84,10 @@ namespace YAMO.UnityTools.Editor
             IReadOnlyList<MocapPipelineItem> items,
             Func<string, float, bool> progressCallback = null)
         {
-            if (MocapToBipedFbxPlayModeRunner.IsRunning)
-                throw new InvalidOperationException("이미 Mocap 대기열이 실행 중입니다.");
+            // 3ds Max import/batch/export is handled by a separate workflow.
+            // Keep the former integration for later extraction into its own tool.
+            // if (settings?.ArmChain?.Enabled == true)
+            //     return MocapArmChainPipeline.Run(settings, items, progressCallback);
             ValidateSettings(settings, items);
             Directory.CreateDirectory(Path.GetFullPath(settings.FbxOutputDirectory));
 
@@ -102,48 +105,61 @@ namespace YAMO.UnityTools.Editor
             foreach (var note in bindingNameNotes)
                 Debug.Log($"[MocapPipeline] {note}");
 
-            for (var index = 0; index < enabledItems.Count; index++)
+            var originalTarget = settings.TargetAnimator;
+            var temporaryTargetPath = MocapTemporaryTarget.NewAssetPath();
+            Animator temporaryTarget = null;
+            try
             {
-                var item = enabledItems[index];
-                var result = new MocapPipelineResult
+                temporaryTarget = MocapTemporaryTarget.Create(originalTarget, temporaryTargetPath);
+                settings.TargetAnimator = temporaryTarget;
+                for (var index = 0; index < enabledItems.Count; index++)
                 {
-                    Item = item,
-                    Stage = MocapPipelineStage.Pending
-                };
-                results.Add(result);
+                    var item = enabledItems[index];
+                    var result = new MocapPipelineResult
+                    {
+                        Item = item,
+                        Stage = MocapPipelineStage.Pending
+                    };
+                    results.Add(result);
 
-                try
-                {
-                    RunItem(
-                        settings,
-                        item,
-                        result,
-                        usedNames,
-                        bindingNames,
-                        (message, itemProgress) =>
-                        {
-                            var totalProgress = (index + Mathf.Clamp01(itemProgress)) / enabledItems.Count;
-                            return progressCallback?.Invoke(
-                                $"[{index + 1}/{enabledItems.Count}] {message}",
-                                totalProgress) == true;
-                        });
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception exception)
-                {
-                    result.Stage = MocapPipelineStage.Failed;
-                    result.Error = exception.Message;
-                    Debug.LogException(exception);
-                    if (!settings.ContinueOnError)
+                    try
+                    {
+                        RunItem(
+                            settings,
+                            item,
+                            result,
+                            usedNames,
+                            bindingNames,
+                            (message, itemProgress) =>
+                            {
+                                var totalProgress = (index + Mathf.Clamp01(itemProgress)) / enabledItems.Count;
+                                return progressCallback?.Invoke(
+                                    $"[{index + 1}/{enabledItems.Count}] {message}",
+                                    totalProgress) == true;
+                            });
+                    }
+                    catch (OperationCanceledException)
+                    {
                         throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        result.Stage = MocapPipelineStage.Failed;
+                        result.Error = exception.Message;
+                        Debug.LogException(exception);
+                        if (!settings.ContinueOnError)
+                            throw;
+                    }
                 }
-            }
 
-            progressCallback?.Invoke("Mocap to Biped FBX 파이프라인 완료", 1f);
-            return results;
+                progressCallback?.Invoke("Mocap to Biped FBX 파이프라인 완료", 1f);
+                return results;
+            }
+            finally
+            {
+                settings.TargetAnimator = originalTarget;
+                MocapTemporaryTarget.Delete(temporaryTargetPath, temporaryTarget);
+            }
         }
 
         private static void RunItem(

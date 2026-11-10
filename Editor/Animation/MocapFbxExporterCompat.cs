@@ -8,6 +8,10 @@ namespace YAMO.UnityTools.Editor
     /// <summary>
     /// Reflection facade for the incompatible public APIs of FBX Exporter 4.x and 5.x.
     /// </summary>
+    // Editor reflection metadata is cached for the lifetime of its loaded assembly.
+#if UNITY_7000_0_OR_NEWER
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+#endif
     public static class MocapFbxExporterCompat
     {
         private const string ModelExporterName = "UnityEditor.Formats.Fbx.Exporter.ModelExporter";

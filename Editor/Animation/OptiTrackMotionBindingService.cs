@@ -62,10 +62,14 @@ namespace YAMO.UnityTools.Editor
     /// Reusable motion FBX binding pipeline (OptiTrack and MMRP skeletons) used by
     /// the mocap window's binding-only tool and the batch pipeline workflows.
     /// </summary>
+    // Editor mapping tables and reflection caches are assembly-lifetime metadata.
+#if UNITY_7000_0_OR_NEWER
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+#endif
     public static class OptiTrackMotionBindingService
     {
-        private const string SpineBone = "_Spine";
-        private const string ChestBone = "_Spine1";
+        private const string SpineBone = "_Spine1";
+        private const string ChestBone = "_Spine3";
         private const string SourceBackupMarker = "YAMO_MOCAP_SOURCE_BACKUP=";
 
         private static readonly KeyValuePair<string, string>[] OptiTrackHumanBoneSuffixes =
@@ -161,7 +165,7 @@ namespace YAMO.UnityTools.Editor
                 return backupPath;
             }
 
-            if (!AssetDatabase.CopyAsset(sourcePath, backupPath))
+            if (!MocapFbxAssetCopy.Copy(sourcePath, backupPath))
                 throw new InvalidOperationException($"{sourcePath}: 원본 백업 생성에 실패했습니다 ({backupPath}).");
 
             WriteSourceBackupPath(importer, backupPath);
@@ -274,7 +278,7 @@ namespace YAMO.UnityTools.Editor
             if (!PrepareDestination(tPosePath, existingAssetPolicy, out var destinationError, out var tPoseOverwriteNote))
                 return Fail(result, destinationError);
             AppendNote(result, tPoseOverwriteNote);
-            if (!AssetDatabase.CopyAsset(sourcePath, tPosePath))
+            if (!MocapFbxAssetCopy.Copy(sourcePath, tPosePath))
                 return Fail(result, $"{sourcePath}: _T 복사 실패");
 
             if (!BuildTPoseAvatar(tPosePath, format, out var tPoseAvatar, out var note))
@@ -573,7 +577,7 @@ namespace YAMO.UnityTools.Editor
 
         /// <summary>
         /// OptiTrack when any bone ends with "_Hips", MMRP when a bone is named
-        /// exactly "Hips", otherwise null.
+        /// exactly "Hips" or the alternate Hip/Ab/Spine2/Spine4 chain, otherwise null.
         /// </summary>
         public static MocapSourceFormat? DetectSourceFormat(Transform root)
         {
@@ -583,6 +587,12 @@ namespace YAMO.UnityTools.Editor
             if (transforms.Any(transform => transform.name.EndsWith("_Hips", StringComparison.OrdinalIgnoreCase)))
                 return MocapSourceFormat.OptiTrack;
             if (transforms.Any(transform => string.Equals(transform.name, "Hips", StringComparison.OrdinalIgnoreCase)))
+                return MocapSourceFormat.MMRP;
+            // Alternate MMRP exports have no _Hips suffix. Require the complete
+            // characteristic chain rather than guessing from a generic Hip name.
+            var names = new HashSet<string>(transforms.Select(transform => transform.name),
+                StringComparer.OrdinalIgnoreCase);
+            if (new[] { "Hip", "Ab", "Spine2", "Spine4" }.All(names.Contains))
                 return MocapSourceFormat.MMRP;
             return null;
         }
@@ -597,7 +607,7 @@ namespace YAMO.UnityTools.Editor
             var detected = DetectSourceFormat(sourcePath);
             if (!detected.HasValue || detected.Value == format)
                 return null;
-            return $"{sourcePath}: {detected.Value.GetLabel()} 형식 스켈레톤입니다. " +
+            return $"{sourcePath}: 본 구조가 {detected.Value.GetLabel()} 산출물로 추정되어 이 파일의 작업을 중단했습니다. " +
                    $"{format.GetLabel()} 탭이 아니라 {detected.Value.GetLabel()} 탭에서 처리하세요.";
         }
 
@@ -683,7 +693,22 @@ namespace YAMO.UnityTools.Editor
             var description = importer.humanDescription;
             description.human = RemapHumanBones(human, format, prefix);
             description.skeleton = skeleton;
+            if (format == MocapSourceFormat.OptiTrack)
+            {
+                try
+                {
+                    description.skeleton = EnforceOptiTrackTPose(model, description.human);
+                }
+                catch (Exception exception)
+                {
+                    note = $"{tPosePath}: Enforce T-Pose 실패 - {exception.GetBaseException().Message}";
+                    return false;
+                }
+            }
             description.hasTranslationDoF = translationDof;
+            // Apply the shared Biped twist profile before building either source avatar.
+            description.upperArmTwist = 0.5f;
+            description.lowerArmTwist = 0f;
             importer.animationType = ModelImporterAnimationType.Human;
             importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
             importer.importAnimation = false;
@@ -700,6 +725,41 @@ namespace YAMO.UnityTools.Editor
             return true;
         }
 
+        private static SkeletonBone[] EnforceOptiTrackTPose(GameObject model, HumanBone[] human)
+        {
+            // Use the same pose solver as Avatar Configuration's Enforce T-Pose.
+            // Work on a preview clone; imported assets and the user's scene stay untouched.
+            var clone = UnityEditor.SceneManagement.EditorSceneManager.NewPreviewScene();
+            GameObject instance = null;
+            try
+            {
+                instance = (GameObject)PrefabUtility.InstantiatePrefab(model, clone);
+                instance.name = model.name;
+                var tool = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.AvatarSetupTool");
+                const BindingFlags flags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+                var getModelBones = tool?.GetMethods(flags).SingleOrDefault(m => m.Name == "GetModelBones");
+                var getHumanBones = tool?.GetMethod("GetHumanBones", flags, null,
+                    new[] { typeof(Dictionary<string, string>), typeof(Dictionary<Transform, bool>) }, null);
+                var enforce = tool?.GetMethods(flags).SingleOrDefault(m => m.Name == "MakePoseValid");
+                var validate = tool?.GetMethods(flags).SingleOrDefault(m => m.Name == "IsPoseValid");
+                if (getModelBones == null || getHumanBones == null || enforce == null || validate == null)
+                    throw new NotSupportedException("AvatarSetupTool T-Pose API를 찾을 수 없습니다.");
+                var bones = getModelBones.Invoke(null, new object[] { instance.transform, true, null });
+                var mapping = human.ToDictionary(b => b.humanName, b => b.boneName);
+                var wrappers = getHumanBones.Invoke(null, new[] { (object)mapping, bones });
+                enforce.Invoke(null, new[] { wrappers });
+                if (!(bool)validate.Invoke(null, new[] { wrappers }))
+                    throw new InvalidOperationException("Enforce T-Pose 후 포즈 검증 실패");
+                return BuildSkeleton(instance.GetComponentsInChildren<Transform>(true));
+            }
+            finally
+            {
+                if (instance != null)
+                    UnityEngine.Object.DestroyImmediate(instance);
+                UnityEditor.SceneManagement.EditorSceneManager.ClosePreviewScene(clone);
+            }
+        }
+
         private static string FindOptiTrackPrefix(IEnumerable<HumanBone> human)
         {
             foreach (var humanBone in human)
@@ -714,8 +774,7 @@ namespace YAMO.UnityTools.Editor
 
         /// <summary>
         /// Drops the mappings the Biped pipeline never wants (eyes, jaw, upper chest)
-        /// and, for OptiTrack, forces the spine chain onto the prefixed Spine/Spine1
-        /// bones because the automatic mapping lands one bone too high.
+        /// and, for OptiTrack, maps Spine/Chest onto the prefixed Spine1/Spine3 bones.
         /// </summary>
         public static HumanBone[] RemapHumanBones(
             IEnumerable<HumanBone> human,
@@ -1025,9 +1084,21 @@ namespace YAMO.UnityTools.Editor
                 var avatarSetupTool = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.AvatarSetupTool");
                 setupHumanSkeleton = avatarSetupTool?.GetMethod(
                     "SetupHumanSkeleton",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static,
+                    null,
+                    new[]
+                    {
+                        typeof(GameObject),
+                        typeof(HumanBone[]).MakeByRefType(),
+                        typeof(SkeletonBone[]).MakeByRefType(),
+                        typeof(bool).MakeByRefType()
+                    },
+                    null);
             }
 
+            // Unity 6000.7 exposes a native-pointer overload instead. Never pass
+            // managed output arrays (or a fabricated pointer) to that API. The
+            // explicit MMRP/OptiTrack mapping above remains the supported path.
             if (setupHumanSkeleton == null)
                 return false;
 

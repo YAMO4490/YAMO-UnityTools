@@ -18,7 +18,9 @@ namespace YAMO.UnityTools.Editor
         public int SampleRate { get; set; } = 60;
         public bool EnableHingeCorrection { get; set; } = true;
         public ForearmHingeAxis HingeAxis { get; set; } = ForearmHingeAxis.Z;
-        public float HandRotationCompensation { get; set; } = 1f;
+        public float HandRotationCompensation { get; set; } = 0.5f;
+        public float StartTime { get; set; }
+        public float Duration { get; set; }
     }
 
     public sealed class ForearmHingeBakeResult
@@ -62,7 +64,10 @@ namespace YAMO.UnityTools.Editor
             if (settings.EnableHingeCorrection)
                 ValidateArmMapping(animator);
 
-            var frameCount = Mathf.CeilToInt(sourceClip.length * settings.SampleRate) + 1;
+            var duration = settings.Duration > 0f ? settings.Duration : sourceClip.length - settings.StartTime;
+            if (settings.StartTime < 0f || duration <= 0f || settings.StartTime + duration > sourceClip.length + .001f)
+                throw new InvalidOperationException("베이크 구간이 원본 클립 범위를 벗어났습니다.");
+            var frameCount = Mathf.CeilToInt(duration * settings.SampleRate) + 1;
             var sampleTimes = new float[frameCount];
             var rotations = new Dictionary<Transform, Quaternion[]>(bones.Count);
             var positions = new Dictionary<Transform, Vector3[]>(bones.Count);
@@ -78,13 +83,13 @@ namespace YAMO.UnityTools.Editor
             {
                 for (var frame = 0; frame < frameCount; frame++)
                 {
-                    var time = Mathf.Min(frame / (float)settings.SampleRate, sourceClip.length);
+                    var time = Mathf.Min(frame / (float)settings.SampleRate, duration);
                     sampleTimes[frame] = time;
 
                     AnimationMode.BeginSampling();
                     try
                     {
-                        AnimationMode.SampleAnimationClip(animator.gameObject, sourceClip, time);
+                        AnimationMode.SampleAnimationClip(animator.gameObject, sourceClip, Mathf.Min(settings.StartTime + time, sourceClip.length));
                     }
                     finally
                     {
@@ -187,18 +192,6 @@ namespace YAMO.UnityTools.Editor
                 throw new FileNotFoundException("Play Mode Hinge 결과 파일을 찾을 수 없습니다.", resultsPath);
             if (sampleRate <= 0)
                 throw new ArgumentOutOfRangeException(nameof(sampleRate));
-
-            using (var probe = new BinaryReader(File.OpenRead(resultsPath)))
-            {
-                if (probe.ReadInt32() == YAMO.UnityTools.MocapPoseStream.Magic)
-                {
-                    ForearmHingeBakeResult result = null;
-                    var routine = MocapPoseClipBuilder.Build(resultsPath, clipName, null, value => result = value);
-                    try { while (routine.MoveNext()) { } }
-                    finally { (routine as IDisposable)?.Dispose(); }
-                    return result;
-                }
-            }
 
             using (var reader = new BinaryReader(File.Open(resultsPath, FileMode.Open, FileAccess.Read, FileShare.Read)))
             {
@@ -337,20 +330,15 @@ namespace YAMO.UnityTools.Editor
                     }
                 }
 
-                if (!positionAnimated)
-                {
-                    var p = positionValues[0];
-                    clip.SetCurve(path, typeof(Transform), "localPosition.x", AnimationCurve.Constant(0f, sampleTimes[sampleTimes.Count - 1], p.x));
-                    clip.SetCurve(path, typeof(Transform), "localPosition.y", AnimationCurve.Constant(0f, sampleTimes[sampleTimes.Count - 1], p.y));
-                    clip.SetCurve(path, typeof(Transform), "localPosition.z", AnimationCurve.Constant(0f, sampleTimes[sampleTimes.Count - 1], p.z));
-                    continue;
-                }
-
                 var positionX = new AnimationCurve();
                 var positionY = new AnimationCurve();
                 var positionZ = new AnimationCurve();
                 for (var frame = 0; frame < sampleTimes.Count; frame++)
                 {
+                    // Fixed translations still define the baked skeleton. Keep
+                    // endpoints so a different FBX rest pose cannot replace them.
+                    if (!positionAnimated && frame > 0 && frame < sampleTimes.Count - 1)
+                        continue;
                     var time = sampleTimes[frame];
                     var position = positionValues[frame];
                     positionX.AddKey(time, position.x);
@@ -408,20 +396,13 @@ namespace YAMO.UnityTools.Editor
                     }
                 }
 
-                if (!positionAnimated)
-                {
-                    var p = positions[bone][0];
-                    clip.SetCurve(path, typeof(Transform), "localPosition.x", AnimationCurve.Constant(0f, (frameCount - 1) / (float)sampleRate, p.x));
-                    clip.SetCurve(path, typeof(Transform), "localPosition.y", AnimationCurve.Constant(0f, (frameCount - 1) / (float)sampleRate, p.y));
-                    clip.SetCurve(path, typeof(Transform), "localPosition.z", AnimationCurve.Constant(0f, (frameCount - 1) / (float)sampleRate, p.z));
-                    continue;
-                }
-
                 var positionX = new AnimationCurve();
                 var positionY = new AnimationCurve();
                 var positionZ = new AnimationCurve();
                 for (var frame = 0; frame < frameCount; frame++)
                 {
+                    if (!positionAnimated && frame > 0 && frame < frameCount - 1)
+                        continue;
                     var time = frame / (float)sampleRate;
                     var position = positions[bone][frame];
                     positionX.AddKey(time, position.x);

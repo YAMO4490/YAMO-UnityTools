@@ -66,8 +66,7 @@ namespace YAMO.UnityTools.Editor
             try
             {
                 ThrowIfCancelled(progressCallback, "Biped 복제본 준비", 0.02f);
-                clone = CreateSamplingClone(settings.TargetRoot,
-                    settings.ExportGeometry || settings.RecordBlendShapes || !settings.ExportUnrendered);
+                clone = CreateSamplingClone(settings.TargetRoot);
                 bakedClip = BakeClip(
                     clone,
                     settings,
@@ -110,6 +109,10 @@ namespace YAMO.UnityTools.Editor
 
                 ThrowIfCancelled(progressCallback, "최종 FBX 저장", 0.96f);
                 var backupPath = ReplaceTarget(maxTemporaryPath, outputPath, settings.CreateBackup);
+                var project = Path.GetFullPath(Path.Combine(Application.dataPath, "..")).Replace('\\', '/').TrimEnd('/') + "/";
+                var normalized = outputPath.Replace('\\', '/');
+                if (normalized.StartsWith(project + "Assets/", StringComparison.OrdinalIgnoreCase))
+                    AssetDatabase.ImportAsset(normalized.Substring(project.Length), ImportAssetOptions.ForceSynchronousImport);
                 progressCallback?.Invoke("FBX Export 완료", 1f);
 
                 return new BipedFbxExportResult
@@ -123,7 +126,7 @@ namespace YAMO.UnityTools.Editor
             finally
             {
                 if (controller != null)
-                    DestroyTransientController(controller);
+                    Object.DestroyImmediate(controller);
                 if (bakedClip != null)
                     Object.DestroyImmediate(bakedClip);
                 if (clone != null)
@@ -157,137 +160,103 @@ namespace YAMO.UnityTools.Editor
             out int sampleCount)
         {
             var recorder = new GameObjectRecorder(samplingRoot);
-            AnimationClip clip = null;
             try
             {
-            recorder.BindComponentsOfType(samplingRoot, typeof(Transform), true);
-            if (settings.RecordBlendShapes)
-                recorder.BindComponentsOfType(samplingRoot, typeof(SkinnedMeshRenderer), true);
+                recorder.BindComponentsOfType(samplingRoot, typeof(Transform), true);
+                if (settings.RecordBlendShapes)
+                    recorder.BindComponentsOfType(samplingRoot, typeof(SkinnedMeshRenderer), true);
 
-            var duration = EffectiveDuration(settings);
-            var endTime = settings.StartTime + duration;
-            var frameCount = Mathf.Max(1, Mathf.CeilToInt(duration * settings.FrameRate));
-            var previousTime = settings.StartTime;
-            sampleCount = frameCount + 1;
-            var transformCount = samplingRoot.GetComponentsInChildren<Transform>(true).Length;
-            Debug.Log(
-                $"[Mocap Pipeline] Final bake 시작: {transformCount} Transform, " +
-                $"{sampleCount} samples, BlendShapes={settings.RecordBlendShapes}, " +
-                $"ClampedTangents={settings.ClampedTangents}, Compression={settings.Compression}");
-            var stageTimer = System.Diagnostics.Stopwatch.StartNew();
-
-            AnimationMode.StartAnimationMode();
-            try
-            {
-                for (var frame = 0; frame <= frameCount; frame++)
-                {
-                    var sourceTime = frame == frameCount
-                        ? endTime
-                        : Mathf.Min(settings.StartTime + frame / settings.FrameRate, endTime);
-
-                    AnimationMode.BeginSampling();
-                    try
-                    {
-                        AnimationMode.SampleAnimationClip(samplingRoot, settings.Clip, sourceTime);
-                    }
-                    finally
-                    {
-                        AnimationMode.EndSampling();
-                    }
-
-                    recorder.TakeSnapshot(frame == 0 ? 0f : sourceTime - previousTime);
-                    previousTime = sourceTime;
-                    if (progressCallback?.Invoke(
-                            $"{settings.Clip.name}: {sourceTime:0.###}s 샘플링",
-                            frame / (float)frameCount) == true)
-                        throw new OperationCanceledException("FBX 애니메이션 베이크가 취소되었습니다.");
-                }
-            }
-            finally
-            {
-                AnimationMode.StopAnimationMode();
-            }
-            Debug.Log(
-                $"[Mocap Pipeline] Final bake 샘플링 완료: " +
-                $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
-
-            clip = new AnimationClip { frameRate = settings.FrameRate, hideFlags = HideFlags.HideAndDontSave };
-            ThrowIfCancelled(progressCallback, $"{settings.Clip.name}: AnimationClip 커브 생성", 0.99f);
-            stageTimer.Restart();
-            recorder.SaveToClip(clip, settings.FrameRate, GetCurveFilterOptions(settings.Compression));
-            Debug.Log(
-                $"[Mocap Pipeline] AnimationClip 커브 생성 완료: " +
-                $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
-            if (settings.ClampedTangents)
-            {
-                stageTimer.Restart();
-                ApplyClampedTangents(clip);
+                var duration = EffectiveDuration(settings);
+                var endTime = settings.StartTime + duration;
+                var frameCount = Mathf.Max(1, Mathf.CeilToInt(duration * settings.FrameRate));
+                var previousTime = settings.StartTime;
+                sampleCount = frameCount + 1;
+                var transformCount = samplingRoot.GetComponentsInChildren<Transform>(true).Length;
                 Debug.Log(
-                    $"[Mocap Pipeline] ClampedAuto 탄젠트 완료: " +
+                    $"[Mocap Pipeline] Final bake 시작: {transformCount} Transform, " +
+                    $"{sampleCount} samples, BlendShapes={settings.RecordBlendShapes}, " +
+                    $"ClampedTangents={settings.ClampedTangents}, Compression={settings.Compression}");
+                var stageTimer = System.Diagnostics.Stopwatch.StartNew();
+
+                AnimationMode.StartAnimationMode();
+                try
+                {
+                    for (var frame = 0; frame <= frameCount; frame++)
+                    {
+                        var sourceTime = frame == frameCount
+                            ? endTime
+                            : Mathf.Min(settings.StartTime + frame / settings.FrameRate, endTime);
+
+                        AnimationMode.BeginSampling();
+                        try
+                        {
+                            AnimationMode.SampleAnimationClip(samplingRoot, settings.Clip, sourceTime);
+                        }
+                        finally
+                        {
+                            AnimationMode.EndSampling();
+                        }
+
+                        recorder.TakeSnapshot(frame == 0 ? 0f : sourceTime - previousTime);
+                        previousTime = sourceTime;
+                        if (progressCallback?.Invoke(
+                                $"{settings.Clip.name}: {sourceTime:0.###}s 샘플링",
+                                frame / (float)frameCount) == true)
+                            throw new OperationCanceledException("FBX 애니메이션 베이크가 취소되었습니다.");
+                    }
+                }
+                finally
+                {
+                    AnimationMode.StopAnimationMode();
+                }
+                Debug.Log(
+                    $"[Mocap Pipeline] Final bake 샘플링 완료: " +
                     $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
+
+                var clip = new AnimationClip { frameRate = settings.FrameRate };
+                ThrowIfCancelled(progressCallback, $"{settings.Clip.name}: AnimationClip 커브 생성", 0.99f);
+                stageTimer.Restart();
+                recorder.SaveToClip(clip, settings.FrameRate, GetCurveFilterOptions(settings.Compression));
+                Debug.Log(
+                    $"[Mocap Pipeline] AnimationClip 커브 생성 완료: " +
+                    $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
+                if (settings.ClampedTangents)
+                {
+                    stageTimer.Restart();
+                    ApplyClampedTangents(clip);
+                    Debug.Log(
+                        $"[Mocap Pipeline] ClampedAuto 탄젠트 완료: " +
+                        $"{stageTimer.Elapsed.TotalSeconds:0.###}s");
+                }
+                return clip;
             }
-            var resultClip = clip; clip = null;
-            return resultClip;
-            }
-            finally
-            {
-                recorder.ResetRecording(); Object.DestroyImmediate(recorder);
-                if (clip != null) Object.DestroyImmediate(clip);
-            }
+            finally { recorder.ResetRecording(); }
         }
 
-        internal static GameObject CreateSamplingClone(GameObject source, bool includeGeometry)
+        private static GameObject CreateSamplingClone(GameObject source)
         {
-            GameObject clone;
-            if (includeGeometry)
-            {
-                clone = Object.Instantiate(source);
-                clone.transform.SetParent(null, true);
-                foreach (var behaviour in clone.GetComponentsInChildren<Behaviour>(true)) behaviour.enabled = false;
-            }
-            else
-            {
-                clone = new GameObject(source.name);
-                clone.transform.SetPositionAndRotation(source.transform.position, source.transform.rotation);
-                clone.transform.localScale = source.transform.lossyScale;
-                var map = new System.Collections.Generic.Dictionary<Transform, Transform> { [source.transform] = clone.transform };
-                foreach (var original in source.GetComponentsInChildren<Transform>(true))
-                {
-                    if (original == source.transform) continue;
-                    var child = new GameObject(original.name).transform;
-                    child.SetParent(map[original.parent], false);
-                    child.localPosition = original.localPosition;
-                    child.localRotation = original.localRotation;
-                    child.localScale = original.localScale;
-                    map[original] = child;
-                }
-            }
-            clone.name = source.name; clone.SetActive(true);
-            foreach (var transform in clone.GetComponentsInChildren<Transform>(true)) transform.gameObject.hideFlags = HideFlags.HideAndDontSave;
+            var clone = Object.Instantiate(source);
+            clone.name = source.name;
+            clone.transform.SetParent(null, true);
+            clone.SetActive(true);
+            foreach (var transform in clone.GetComponentsInChildren<Transform>(true))
+                transform.gameObject.hideFlags = HideFlags.HideAndDontSave;
             foreach (var childAnimator in clone.GetComponentsInChildren<Animator>(true))
             {
-                childAnimator.runtimeAnimatorController = null; childAnimator.avatar = null;
-                childAnimator.applyRootMotion = false; childAnimator.enabled = true;
+                childAnimator.runtimeAnimatorController = null;
+                // Forearm Hinge 결과는 Humanoid muscle clip이 아니라 Biped 경로에
+                // 직접 기록된 Transform 커브다. Avatar를 유지하면 최종 재샘플링과
+                // FBX Export 단계에서 Humanoid로 다시 해석되어 포즈가 무너질 수 있다.
+                // 원본이 아닌 이 임시 복제본에서만 Generic 상태로 전환한다.
+                childAnimator.avatar = null;
+                childAnimator.applyRootMotion = false;
+                childAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                childAnimator.enabled = true;
             }
-            var animator = clone.GetComponent<Animator>();
-            if (animator == null) animator = clone.AddComponent<Animator>();
-            animator.runtimeAnimatorController = null; animator.avatar = null;
-            animator.applyRootMotion = false; animator.cullingMode = AnimatorCullingMode.AlwaysAnimate; animator.enabled = true;
             return clone;
         }
 
-        internal static void DestroyTransientController(AnimatorController controller)
-        {
-            if (controller == null) return;
-            foreach (var layer in controller.layers)
-            {
-                foreach (var state in layer.stateMachine.states) if (state.state != null) Object.DestroyImmediate(state.state);
-                Object.DestroyImmediate(layer.stateMachine);
-            }
-            Object.DestroyImmediate(controller);
-        }
-
-        internal static AnimatorController AttachSingleClipController(GameObject root, AnimationClip clip)
+        private static AnimatorController AttachSingleClipController(GameObject root, AnimationClip clip)
         {
             var animator = root.GetComponent<Animator>();
             if (animator == null)
@@ -336,7 +305,7 @@ namespace YAMO.UnityTools.Editor
             }
         }
 
-        internal static void Validate(BipedFbxExportSettings settings)
+        private static void Validate(BipedFbxExportSettings settings)
         {
             if (settings == null)
                 throw new ArgumentNullException(nameof(settings));
@@ -370,7 +339,7 @@ namespace YAMO.UnityTools.Editor
             return string.IsNullOrWhiteSpace(value) ? "Animation" : value.Trim();
         }
 
-        internal static string ReplaceTarget(string sourcePath, string targetPath, bool keepBackup)
+        private static string ReplaceTarget(string sourcePath, string targetPath, bool keepBackup)
         {
             if (!File.Exists(targetPath))
             {
@@ -401,7 +370,7 @@ namespace YAMO.UnityTools.Editor
                 throw new OperationCanceledException("FBX Export가 취소되었습니다.");
         }
 
-        internal static void DeleteTemporaryFile(string path)
+        private static void DeleteTemporaryFile(string path)
         {
             if (!string.IsNullOrEmpty(path) && File.Exists(path))
                 File.Delete(path);

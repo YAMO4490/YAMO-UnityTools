@@ -12,9 +12,13 @@ namespace YAMO.UnityTools.Editor
 {
     /// <summary>
     /// Mocap tool hub. Browser-style tabs keep each source format's queue apart:
-    /// the OptiTrack and MMRP pipelines (bind → Forearm Hinge → 3ds Max FBX) and
+    /// the OptiTrack and MMRP pipelines (bind → transform/Forearm Hinge bake → Biped FBX) and
     /// the FBX animation import setup that used to be its own window.
     /// </summary>
+    // Open editor window identity is owned by OnEnable/OnDisable, not Play Mode.
+#if UNITY_7000_0_OR_NEWER
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+#endif
     public sealed class MocapToBipedFbxPipelineWindow : EditorWindow
     {
         private enum Tab
@@ -40,16 +44,17 @@ namespace YAMO.UnityTools.Editor
 
         [SerializeField] private Tab activeTab;
         [SerializeField] private Animator targetAnimator;
-        [SerializeField] private bool queueAssetsSuspended;
         [SerializeField, FormerlySerializedAs("items")]
         private List<MocapPipelineItem> optiTrackItems = new List<MocapPipelineItem>();
         [SerializeField] private List<MocapPipelineItem> mmrpItems = new List<MocapPipelineItem>();
         [SerializeField] private string fbxOutputDirectory;
         [SerializeField] private int sampleRate = 60;
+        [SerializeField] private MocapArmChainSettings armChain = new MocapArmChainSettings {
+            Enabled = true, MaxBatchExecutable = MocapArmChainSettings.DefaultMaxBatchExecutable };
         [SerializeField] private MocapHingeBakeMode hingeBakeMode = MocapHingeBakeMode.PlayMode;
         [SerializeField] private bool enableHingeCorrection = true;
         [SerializeField] private ForearmHingeAxis hingeAxis = ForearmHingeAxis.Z;
-        [SerializeField, Range(0f, 1f)] private float handRotationCompensation = 1f;
+        [SerializeField, Range(0f, 1f)] private float handRotationCompensation = 0.5f;
         [SerializeField] private ExistingMotionAssetPolicy existingBindingPolicy = ExistingMotionAssetPolicy.Fail;
         [SerializeField] private bool exportGeometry;
         [SerializeField] private bool exportUnrendered = true;
@@ -124,14 +129,6 @@ namespace YAMO.UnityTools.Editor
 
         private void OnGUI()
         {
-            if (MocapToBipedFbxPlayModeRunner.IsRunning)
-            {
-                EditorGUILayout.HelpBox(MocapToBipedFbxPlayModeRunner.Status, MessageType.Info);
-                if (GUILayout.Button("작업 취소")) MocapToBipedFbxPlayModeRunner.Cancel();
-                Repaint();
-                return;
-            }
-            RestoreQueueReferences();
             DrawTabBar();
             scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
             if (activeTab == Tab.FbxSetup)
@@ -159,7 +156,7 @@ namespace YAMO.UnityTools.Editor
         private void DrawPipelinePage(MocapSourceFormat format)
         {
             EditorGUILayout.LabelField(
-                $"{format.GetLabel()} → Forearm Hinge → 3ds Max FBX",
+                $"{format.GetLabel()} → Transform / Forearm Hinge → Biped FBX",
                 EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 DescribeFormat(format) + " Anim 입력은 클립을 바로 사용합니다. " +
@@ -173,7 +170,7 @@ namespace YAMO.UnityTools.Editor
                 YamoMmrpReplayerEditor.SelectOrAdd();
 
             if (MocapToBipedFbxPlayModeRunner.IsRunning)
-                EditorGUILayout.HelpBox("항목별 녹화와 FBX 출력이 순서대로 진행됩니다.", MessageType.Warning);
+                EditorGUILayout.HelpBox("Play Mode Hinge 배치가 실행 중입니다. Edit Mode 복귀 후 FBX Export가 자동으로 이어집니다.", MessageType.Warning);
 
             DrawTarget();
             EditorGUILayout.Space(8f);
@@ -214,7 +211,9 @@ namespace YAMO.UnityTools.Editor
                               targetAnimator.avatar.isValid &&
                               targetAnimator.avatar.isHuman;
             EditorGUILayout.HelpBox(
-                avatarValid ? "유효한 Humanoid Avatar" : "유효한 Humanoid Avatar가 아닙니다.",
+                avatarValid
+                    ? "본 전용 임시 FBX에서 원본 매핑을 유지하고 Reset Pose 후 Lower Arm Twist 1로 베이크합니다. 완료 후 임시 사본을 삭제합니다."
+                    : "유효한 Humanoid Avatar가 아닙니다.",
                 avatarValid ? MessageType.None : MessageType.Error);
         }
 
@@ -295,10 +294,23 @@ namespace YAMO.UnityTools.Editor
         {
             EditorGUILayout.LabelField("4. 처리 설정", EditorStyles.boldLabel);
             sampleRate = Mathf.Clamp(EditorGUILayout.IntField("공통 Sample Rate", sampleRate), 1, 120);
+            // Disabled: 3ds Max automation belongs in a separate tool.
+#if false
+            if (armChain == null) armChain = new MocapArmChainSettings { Enabled = true,
+                MaxBatchExecutable = MocapArmChainSettings.DefaultMaxBatchExecutable };
+            armChain.Enabled = EditorGUILayout.Toggle("Raw 손 보존 + MAX 재처리", armChain.Enabled);
+            if (armChain.Enabled)
+            {
+                MocapArmChainUi.Draw(armChain);
+                continueOnError = EditorGUILayout.Toggle("오류 시 다음 항목 계속", continueOnError);
+                revealAfterExport = EditorGUILayout.Toggle("완료 후 폴더 표시", revealAfterExport);
+                return;
+            }
+#endif
             hingeBakeMode = (MocapHingeBakeMode)EditorGUILayout.EnumPopup(
                 new GUIContent(
                     "Hinge Bake Mode",
-                    "Play Mode: 실시간 발 IK/Foot Stabilization 포함. Edit Mode: 빠른 오프라인 샘플링."),
+                    "Play Mode: 임시 대상의 Animator 발 IK 포함. 원본 런타임 컴포넌트는 복제하지 않습니다. Edit Mode: 빠른 오프라인 샘플링."),
                 hingeBakeMode);
 
             enableHingeCorrection = GUILayout.Toggle(
@@ -361,6 +373,7 @@ namespace YAMO.UnityTools.Editor
                 var label = enableHingeCorrection
                     ? $"{CurrentFormat.GetLabel()} 파이프라인 실행 ({modeLabel})"
                     : $"{CurrentFormat.GetLabel()} 파이프라인 실행 ({modeLabel} / Hinge 비활성화)";
+                // if (armChain != null && armChain.Enabled) label = $"{CurrentFormat.GetLabel()} 실행 · 손 보존 / MAX / FBX";
                 if (GUILayout.Button(label, GUILayout.Height(44f)))
                     RunPipeline();
             }
@@ -374,6 +387,7 @@ namespace YAMO.UnityTools.Editor
                 TargetAnimator = targetAnimator,
                 FbxOutputDirectory = Path.GetFullPath(fbxOutputDirectory),
                 SourceFormat = CurrentFormat,
+                // ArmChain = armChain, // Separate 3ds Max workflow; not dispatched here.
                 SampleRate = sampleRate,
                 HingeBakeMode = hingeBakeMode,
                 EnableHingeCorrection = enableHingeCorrection,
@@ -394,30 +408,43 @@ namespace YAMO.UnityTools.Editor
             try
             {
                 EditorPrefs.SetString(FbxDirectoryKey, fbxOutputDirectory);
-                MocapToBipedFbxPlayModeRunner.Start(settings, items, revealAfterExport);
-                foreach (var item in optiTrackItems.Concat(mmrpItems).Where(x => x != null))
+                if (hingeBakeMode == MocapHingeBakeMode.PlayMode)
                 {
-                    item.SourceAssetPath = AssetDatabase.GetAssetPath(item.SourceFbx);
-                    item.SourceFbx = null;
+                    MocapToBipedFbxPlayModeRunner.Start(settings, items, revealAfterExport);
+                    return;
                 }
-                queueAssetsSuspended = true;
+
+                var results = MocapToBipedFbxPipeline.Run(
+                    settings,
+                    items,
+                    (message, progress) => EditorUtility.DisplayCancelableProgressBar(
+                        "Mocap → Biped FBX",
+                        message,
+                        progress));
+
+                var succeeded = results.Count(result => result.Succeeded);
+                var failed = results.Count - succeeded;
+                if (revealAfterExport && succeeded > 0)
+                    EditorUtility.RevealInFinder(fbxOutputDirectory);
+                EditorUtility.DisplayDialog(
+                    "Mocap 파이프라인 완료",
+                    $"성공: {succeeded}개\n실패: {failed}개\n\n원본 백업: FBX 입력 옆 *_Backup.fbx\nFBX: {fbxOutputDirectory}",
+                    "확인");
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.LogWarning("[Mocap Pipeline] 사용자가 작업을 취소했습니다.");
             }
             catch (Exception exception)
             {
                 Debug.LogException(exception);
                 EditorUtility.DisplayDialog("Mocap 파이프라인 실패", exception.Message, "확인");
             }
-        }
-
-        private void RestoreQueueReferences()
-        {
-            if (!queueAssetsSuspended) return;
-            foreach (var item in optiTrackItems.Concat(mmrpItems).Where(x => x != null))
+            finally
             {
-                if (!string.IsNullOrEmpty(item.SourceAssetPath)) item.SourceFbx = AssetDatabase.LoadMainAssetAtPath(item.SourceAssetPath);
-                item.SourceAssetPath = null;
+                EditorUtility.ClearProgressBar();
+                // The exporter imports only each completed output asset.
             }
-            queueAssetsSuspended = false;
         }
 
         private bool CanRun()
@@ -429,6 +456,7 @@ namespace YAMO.UnityTools.Editor
                    sampleRate > 0 &&
                    !string.IsNullOrWhiteSpace(fbxOutputDirectory) &&
                    CurrentItems.Any(item => item != null && item.Enabled && IsMotionSource(item.SourceFbx)) &&
+                   // Max executable/Base MAX/output folder are not required by the Unity-only pipeline.
                    !IsEditorBusy();
         }
 
@@ -627,6 +655,11 @@ namespace YAMO.UnityTools.Editor
                 ShowNotification(new GUIContent(
                     $"{otherLabel} 형식 FBX {otherFormat}개는 이 탭이 아니라 {otherLabel} 탭에서 추가하세요."));
             }
+
+            if (otherFormat > 0)
+                EditorUtility.DisplayDialog("Mocap 파일 형식 확인",
+                    $"본 구조가 {otherLabel} 산출물로 추정되는 FBX {otherFormat}개의 작업을 중단했습니다.\n" +
+                    $"해당 파일은 큐에 추가하지 않았습니다. {otherLabel} 탭에서 처리하세요.", "확인");
 
             return added;
         }
