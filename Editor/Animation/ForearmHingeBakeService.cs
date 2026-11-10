@@ -195,47 +195,71 @@ namespace YAMO.UnityTools.Editor
 
             using (var reader = new BinaryReader(File.Open(resultsPath, FileMode.Open, FileAccess.Read, FileShare.Read)))
             {
-                var frameCount = reader.ReadInt32();
+                var header = reader.ReadInt32();
+                var frameMajor = header == MocapPoseStream.Magic;
+                var frameCount = frameMajor ? reader.ReadInt32() : header;
                 var boneCount = reader.ReadInt32();
-                if (frameCount <= 0 || boneCount <= 0)
-                    throw new InvalidDataException(
-                        $"Play Mode Hinge 결과가 비어 있습니다: {frameCount} frames, {boneCount} bones.");
+                var duration = frameMajor ? ReadStreamDuration(reader, sampleRate) : (frameCount - 1) / (float)sampleRate;
+                var stream = reader.BaseStream;
+                var payloadBytes = (long)frameCount * MocapPoseStream.BytesPerPose;
+                if (frameCount <= 0 || boneCount <= 0 ||
+                    payloadBytes > (stream.Length - stream.Position) / boneCount ||
+                    (frameMajor && (frameCount < 2 || Math.Ceiling((double)duration * sampleRate) + 1 != frameCount)))
+                    throw new InvalidDataException("Play Mode Hinge 결과의 헤더 또는 샘플 크기가 잘못되었습니다.");
 
                 var paths = new string[boneCount];
-                var rotations = new Quaternion[boneCount][];
-                var positions = new Vector3[boneCount][];
-                for (var bone = 0; bone < boneCount; bone++)
+                if (frameMajor)
                 {
-                    paths[bone] = reader.ReadString();
-                    rotations[bone] = new Quaternion[frameCount];
-                    positions[bone] = new Vector3[frameCount];
-                    for (var frame = 0; frame < frameCount; frame++)
-                    {
-                        rotations[bone][frame] = new Quaternion(
-                            reader.ReadSingle(), reader.ReadSingle(),
-                            reader.ReadSingle(), reader.ReadSingle());
-                        positions[bone][frame] = new Vector3(
-                            reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
-                    }
+                    for (var bone = 0; bone < boneCount; bone++)
+                        paths[bone] = reader.ReadString();
+                    if (stream.Length - stream.Position != payloadBytes * boneCount)
+                        throw new InvalidDataException("Play Mode Hinge 결과의 샘플 크기가 일치하지 않습니다.");
                 }
 
-                if (reader.BaseStream.Position != reader.BaseStream.Length)
-                    throw new InvalidDataException("Play Mode Hinge 결과 파일에 예상하지 못한 데이터가 남아 있습니다.");
-
-                var clip = BuildClipFromRecordedPaths(
-                    string.IsNullOrWhiteSpace(clipName) ? "PlayMode_hinged" : clipName,
-                    sampleRate,
-                    paths,
-                    rotations,
-                    positions,
-                    frameCount);
-                return new ForearmHingeBakeResult
+                var sampleStart = stream.Position;
+                var rotations = new Quaternion[frameCount];
+                var positions = new Vector3[frameCount];
+                var clip = new AnimationClip
                 {
-                    Clip = clip,
-                    FrameCount = frameCount,
-                    BoneCount = boneCount
+                    name = string.IsNullOrWhiteSpace(clipName) ? "PlayMode_hinged" : clipName,
+                    frameRate = sampleRate
                 };
+                try
+                {
+                    for (var bone = 0; bone < boneCount; bone++)
+                    {
+                        var path = frameMajor ? paths[bone] : reader.ReadString();
+                        for (var frame = 0; frame < frameCount; frame++)
+                        {
+                            if (frameMajor)
+                                stream.Position = sampleStart + ((long)frame * boneCount + bone) * MocapPoseStream.BytesPerPose;
+                            rotations[frame] = new Quaternion(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                            positions[frame] = new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                        }
+                        WriteRecordedBoneCurves(clip, path, rotations, positions, sampleRate, duration);
+                    }
+
+                    if (stream.Position != stream.Length)
+                        throw new InvalidDataException("Play Mode Hinge 결과 파일에 예상하지 못한 데이터가 남아 있습니다.");
+
+                    clip.EnsureQuaternionContinuity();
+                    return new ForearmHingeBakeResult { Clip = clip, FrameCount = frameCount, BoneCount = boneCount };
+                }
+                catch
+                {
+                    UnityEngine.Object.DestroyImmediate(clip);
+                    throw;
+                }
             }
+        }
+
+        private static float ReadStreamDuration(BinaryReader reader, int sampleRate)
+        {
+            var recordedRate = reader.ReadInt32();
+            var duration = reader.ReadSingle();
+            if (recordedRate != sampleRate || duration <= 0f || float.IsNaN(duration) || float.IsInfinity(duration))
+                throw new InvalidDataException("Play Mode Hinge 결과의 샘플 레이트 또는 길이가 잘못되었습니다.");
+            return duration;
         }
 
         private static void ValidateArmMapping(Animator animator)
@@ -355,67 +379,60 @@ namespace YAMO.UnityTools.Editor
             return clip;
         }
 
-        private static AnimationClip BuildClipFromRecordedPaths(
-            string name,
+        private static void WriteRecordedBoneCurves(
+            AnimationClip clip,
+            string path,
+            Quaternion[] rotations,
+            Vector3[] positions,
             int sampleRate,
-            IReadOnlyList<string> paths,
-            IReadOnlyList<Quaternion[]> rotations,
-            IReadOnlyList<Vector3[]> positions,
-            int frameCount)
+            float duration)
         {
-            var clip = new AnimationClip { name = name, frameRate = sampleRate };
-            for (var bone = 0; bone < paths.Count; bone++)
+            var frameCount = rotations.Length;
+            var rotationX = new AnimationCurve();
+            var rotationY = new AnimationCurve();
+            var rotationZ = new AnimationCurve();
+            var rotationW = new AnimationCurve();
+            for (var frame = 0; frame < frameCount; frame++)
             {
-                var rotationX = new AnimationCurve();
-                var rotationY = new AnimationCurve();
-                var rotationZ = new AnimationCurve();
-                var rotationW = new AnimationCurve();
-                for (var frame = 0; frame < frameCount; frame++)
-                {
-                    var time = frame / (float)sampleRate;
-                    var rotation = rotations[bone][frame];
-                    rotationX.AddKey(time, rotation.x);
-                    rotationY.AddKey(time, rotation.y);
-                    rotationZ.AddKey(time, rotation.z);
-                    rotationW.AddKey(time, rotation.w);
-                }
-
-                var path = paths[bone];
-                clip.SetCurve(path, typeof(Transform), "localRotation.x", rotationX);
-                clip.SetCurve(path, typeof(Transform), "localRotation.y", rotationY);
-                clip.SetCurve(path, typeof(Transform), "localRotation.z", rotationZ);
-                clip.SetCurve(path, typeof(Transform), "localRotation.w", rotationW);
-
-                var positionAnimated = false;
-                for (var frame = 1; frame < frameCount; frame++)
-                {
-                    if ((positions[bone][frame] - positions[bone][0]).sqrMagnitude > 1e-6f)
-                    {
-                        positionAnimated = true;
-                        break;
-                    }
-                }
-
-                var positionX = new AnimationCurve();
-                var positionY = new AnimationCurve();
-                var positionZ = new AnimationCurve();
-                for (var frame = 0; frame < frameCount; frame++)
-                {
-                    if (!positionAnimated && frame > 0 && frame < frameCount - 1)
-                        continue;
-                    var time = frame / (float)sampleRate;
-                    var position = positions[bone][frame];
-                    positionX.AddKey(time, position.x);
-                    positionY.AddKey(time, position.y);
-                    positionZ.AddKey(time, position.z);
-                }
-                clip.SetCurve(path, typeof(Transform), "localPosition.x", positionX);
-                clip.SetCurve(path, typeof(Transform), "localPosition.y", positionY);
-                clip.SetCurve(path, typeof(Transform), "localPosition.z", positionZ);
+                var time = frame == frameCount - 1 ? duration : frame / (float)sampleRate;
+                var rotation = rotations[frame];
+                rotationX.AddKey(time, rotation.x);
+                rotationY.AddKey(time, rotation.y);
+                rotationZ.AddKey(time, rotation.z);
+                rotationW.AddKey(time, rotation.w);
             }
 
-            clip.EnsureQuaternionContinuity();
-            return clip;
+            clip.SetCurve(path, typeof(Transform), "localRotation.x", rotationX);
+            clip.SetCurve(path, typeof(Transform), "localRotation.y", rotationY);
+            clip.SetCurve(path, typeof(Transform), "localRotation.z", rotationZ);
+            clip.SetCurve(path, typeof(Transform), "localRotation.w", rotationW);
+
+            var positionAnimated = false;
+            for (var frame = 1; frame < frameCount; frame++)
+            {
+                if ((positions[frame] - positions[0]).sqrMagnitude > 1e-6f)
+                {
+                    positionAnimated = true;
+                    break;
+                }
+            }
+
+            var positionX = new AnimationCurve();
+            var positionY = new AnimationCurve();
+            var positionZ = new AnimationCurve();
+            for (var frame = 0; frame < frameCount; frame++)
+            {
+                if (!positionAnimated && frame > 0 && frame < frameCount - 1)
+                    continue;
+                var time = frame == frameCount - 1 ? duration : frame / (float)sampleRate;
+                var position = positions[frame];
+                positionX.AddKey(time, position.x);
+                positionY.AddKey(time, position.y);
+                positionZ.AddKey(time, position.z);
+            }
+            clip.SetCurve(path, typeof(Transform), "localPosition.x", positionX);
+            clip.SetCurve(path, typeof(Transform), "localPosition.y", positionY);
+            clip.SetCurve(path, typeof(Transform), "localPosition.z", positionZ);
         }
 
         private static void CollectHumanoidBones(

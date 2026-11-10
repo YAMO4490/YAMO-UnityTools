@@ -368,8 +368,9 @@ namespace YAMO.UnityTools.Editor
                                 TargetRoot = targetAnimator.gameObject,
                                 Clip = hingeResult.Clip,
                                 OutputPath = Path.Combine(state.FbxOutputDirectory, item.OutputName + ".fbx"),
-                                StartTime = item.StartTime,
-                                Duration = item.Duration,
+                                // The recorder already applies the source range.
+                                StartTime = 0f,
+                                Duration = 0f,
                                 FrameRate = state.SampleRate,
                                 RecordBlendShapes = state.RecordBlendShapes,
                                 ClampedTangents = state.ClampedTangents,
