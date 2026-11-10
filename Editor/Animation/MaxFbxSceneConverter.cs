@@ -22,7 +22,8 @@ namespace YAMO.UnityTools.Editor
         public static MaxFbxConversionReport Convert(
             string sourcePath,
             string destinationPath,
-            bool embedTextures = false)
+            bool embedTextures = false,
+            bool bipedBonesOnly = false)
         {
             if (string.IsNullOrWhiteSpace(sourcePath))
                 throw new ArgumentException("Source FBX path is empty.", nameof(sourcePath));
@@ -49,6 +50,9 @@ namespace YAMO.UnityTools.Editor
                     if (!importer.Import(scene))
                         throw CreateSdkException("Failed to import the Unity FBX", importer.GetStatus());
 
+                    if (bipedBonesOnly)
+                        MarkBipedSkeleton(scene);
+
                     var globalSettings = scene.GetGlobalSettings();
                     var requiresHandednessConversion = false;
                     using (var sourceAxis = globalSettings.GetAxisSystem())
@@ -72,6 +76,9 @@ namespace YAMO.UnityTools.Editor
                         report.AxisConversion = "Root only (preserve bone local axes)";
                     }
 
+                    if (bipedBonesOnly)
+                        BakeBipedRootRotation(scene);
+
                     ConfigureExport(settings, embedTextures);
                     using (var exporter = FbxExporter.Create(manager, "YamoMaxFbxExporter"))
                     {
@@ -83,11 +90,104 @@ namespace YAMO.UnityTools.Editor
                 }
             }
 
-            InspectAndValidate(destinationPath, report);
+            InspectAndValidate(destinationPath, report, bipedBonesOnly);
             return report;
         }
 
-        private static void InspectAndValidate(string path, MaxFbxConversionReport report)
+        private static void BakeBipedRootRotation(FbxScene scene)
+        {
+            var root = scene.GetRootNode().GetChild(0);
+            var stack = scene.GetCurrentAnimationStack();
+            if (stack == null || stack.GetMemberCount() != 1)
+                throw new InvalidDataException("Biped FBX requires one animation layer.");
+
+            var layer = stack.GetAnimLayerMember(0);
+            var curves = new[]
+            {
+                root.LclRotation.GetCurve(layer, "X", false),
+                root.LclRotation.GetCurve(layer, "Y", false),
+                root.LclRotation.GetCurve(layer, "Z", false)
+            };
+            if (curves[0] == null || curves[1] == null || curves[2] == null)
+                throw new InvalidDataException("Biped root rotation requires three sampled curves.");
+
+            var count = curves[0].KeyGetCount();
+            if (count == 0 || curves[1].KeyGetCount() != count || curves[2].KeyGetCount() != count)
+                throw new InvalidDataException("Biped root rotation curves must use matching sample times.");
+
+            var rotations = new FbxVector4[count];
+            for (var index = 0; index < count; index++)
+            {
+                using (var time = curves[0].KeyGetTime(index))
+                using (var yTime = curves[1].KeyGetTime(index))
+                using (var zTime = curves[2].KeyGetTime(index))
+                {
+                    if (time.GetSecondDouble() != yTime.GetSecondDouble() || time.GetSecondDouble() != zTime.GetSecondDouble())
+                        throw new InvalidDataException("Biped root rotation curves must use matching sample times.");
+                    using (var transform = root.EvaluateLocalTransform(time))
+                        rotations[index] = transform.GetR();
+                }
+            }
+
+            // Max's animation update onto an existing Biped misinterprets the
+            // root-only axis correction when it is stored as FBX PreRotation.
+            // Preserve the evaluated Z-up pose in ordinary XYZ Euler keys.
+            var pivot = FbxNode.EPivotSet.eSourcePivot;
+            root.SetPreRotation(pivot, new FbxVector4(0, 0, 0));
+            root.SetPostRotation(pivot, new FbxVector4(0, 0, 0));
+            root.SetRotationOrder(pivot, FbxEuler.EOrder.eOrderXYZ);
+            root.LclRotation.Set(new FbxDouble3(rotations[0][0], rotations[0][1], rotations[0][2]));
+            for (var axis = 0; axis < curves.Length; axis++)
+            {
+                var curve = curves[axis];
+                curve.KeyModifyBegin();
+                try
+                {
+                    var previous = (float)rotations[0][axis];
+                    for (var index = 0; index < count; index++)
+                    {
+                        var value = previous + UnityEngine.Mathf.DeltaAngle(previous, (float)rotations[index][axis]);
+                        curve.KeySetValue(index, value);
+                        previous = value;
+                    }
+                }
+                finally
+                {
+                    curve.KeyModifyEnd();
+                }
+            }
+        }
+        private static void MarkBipedSkeleton(FbxScene scene)
+        {
+            var root = scene.GetRootNode();
+            if (root.GetChildCount() != 1 || root.GetChild(0).GetName() != "Bip001")
+                throw new InvalidDataException("Bone-only FBX must contain a single Bip001 root.");
+            MarkBipedNode(scene, root.GetChild(0), true);
+        }
+
+        private static void MarkBipedNode(FbxScene scene, FbxNode node, bool root)
+        {
+            if ((!root && !node.GetName().StartsWith("Bip001 ", StringComparison.Ordinal)) || node.GetMesh() != null)
+                throw new InvalidDataException("Unexpected non-Biped FBX node: " + node.GetName());
+            if (node.GetSkeleton() == null)
+            {
+                var skeleton = FbxSkeleton.Create(scene, node.GetName());
+                skeleton.SetSkeletonType(root ? FbxSkeleton.EType.eRoot : FbxSkeleton.EType.eLimbNode);
+                node.SetNodeAttribute(skeleton);
+            }
+            for (var index = 0; index < node.GetChildCount(); index++)
+                MarkBipedNode(scene, node.GetChild(index), false);
+        }
+
+        private static void ValidateBipedNode(FbxNode node)
+        {
+            if (node.GetSkeleton() == null || node.GetMesh() != null ||
+                (node.GetName() != "Bip001" && !node.GetName().StartsWith("Bip001 ", StringComparison.Ordinal)))
+                throw new InvalidDataException("Invalid Biped skeleton node in exported FBX: " + node.GetName());
+            for (var index = 0; index < node.GetChildCount(); index++)
+                ValidateBipedNode(node.GetChild(index));
+        }
+        private static void InspectAndValidate(string path, MaxFbxConversionReport report, bool bipedBonesOnly)
         {
             using (var manager = FbxManager.Create())
             {
@@ -100,6 +200,14 @@ namespace YAMO.UnityTools.Editor
                 {
                     if (!importer.Initialize(path, -1, settings) || !importer.Import(scene))
                         throw CreateSdkException("The exported FBX could not be read back", importer.GetStatus());
+
+                    if (bipedBonesOnly)
+                    {
+                        var root = scene.GetRootNode();
+                        if (root.GetChildCount() != 1 || root.GetChild(0).GetName() != "Bip001")
+                            throw new InvalidDataException("Unexpected FBX root after Biped export.");
+                        ValidateBipedNode(root.GetChild(0));
+                    }
 
                     var globalSettings = scene.GetGlobalSettings();
                     using (var axis = globalSettings.GetAxisSystem())

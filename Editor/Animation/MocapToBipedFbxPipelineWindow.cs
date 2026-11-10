@@ -169,6 +169,8 @@ namespace YAMO.UnityTools.Editor
                     : "Edit Mode는 빠르게 샘플링하지만 런타임 Foot Stabilization은 반영하지 않습니다."),
                 MessageType.Info);
             DrawReadmeButton(PipelineReadmePath);
+            if (format == MocapSourceFormat.MMRP && GUILayout.Button("YAMO MMRP Replayer 선택 / 추가"))
+                YamoMmrpReplayerEditor.SelectOrAdd();
 
             if (MocapToBipedFbxPlayModeRunner.IsRunning)
                 EditorGUILayout.HelpBox("항목별 녹화와 FBX 출력이 순서대로 진행됩니다.", MessageType.Warning);

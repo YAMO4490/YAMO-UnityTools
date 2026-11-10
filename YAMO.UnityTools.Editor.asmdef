@@ -4,7 +4,9 @@
     "references": [
         "YAMO.UnityTools.Runtime",
         "Unity.Formats.Fbx.Editor",
-        "Autodesk.Fbx"
+        "Autodesk.Fbx",
+        "Unity.Timeline",
+        "Unity.Timeline.Editor"
     ],
     "includePlatforms": [
         "Editor"

@@ -26,6 +26,7 @@ namespace YAMO.UnityTools.Editor
         public bool ClampedTangents { get; set; }
         public MotionFbxCurveCompression Compression { get; set; } = MotionFbxCurveCompression.Disabled;
         public bool ExportGeometry { get; set; }
+        public bool BipedBonesOnly { get; set; }
         public bool ExportUnrendered { get; set; } = true;
         public bool UseCompatibleNames { get; set; }
         public bool KeepInstances { get; set; } = true;
@@ -56,9 +57,8 @@ namespace YAMO.UnityTools.Editor
             Directory.CreateDirectory(outputDirectory);
 
             var token = Guid.NewGuid().ToString("N");
-            var name = Path.GetFileNameWithoutExtension(outputPath);
-            var unityTemporaryPath = Path.Combine(outputDirectory, $".{name}.{token}.unity.fbx");
-            var maxTemporaryPath = Path.Combine(outputDirectory, $".{name}.{token}.max.fbx");
+            var unityTemporaryPath = Path.Combine(outputDirectory, $".{token}.unity.fbx");
+            var maxTemporaryPath = Path.Combine(outputDirectory, $".{token}.max.fbx");
 
             GameObject clone = null;
             AnimationClip bakedClip = null;
@@ -102,7 +102,8 @@ namespace YAMO.UnityTools.Editor
                 var conversion = MaxFbxSceneConverter.Convert(
                     exportedPath,
                     maxTemporaryPath,
-                    settings.EmbedTextures);
+                    settings.EmbedTextures,
+                    settings.BipedBonesOnly);
                 Debug.Log(
                     $"[Mocap Pipeline] 3ds Max Z-up 변환 완료: " +
                     $"{exportStageTimer.Elapsed.TotalSeconds:0.###}s");

@@ -786,7 +786,29 @@ namespace YAMO.UnityTools.Editor
                 }
             }
 
-            return table.ToArray();
+            // Alternate skeleton naming used by the imported MMRP motion FBX.
+            var aliases = new Dictionary<string, string>
+            {
+                { "Hips", "Hip" }, { "Spine", "Spine2" },
+                { "LeftShoulder", "LShoulder" }, { "RightShoulder", "RShoulder" },
+                { "LeftUpperArm", "LUArm" }, { "RightUpperArm", "RUArm" },
+                { "LeftLowerArm", "LFArm" }, { "RightLowerArm", "RFArm" },
+                { "LeftHand", "LHand" }, { "RightHand", "RHand" },
+                { "LeftUpperLeg", "LThigh" }, { "RightUpperLeg", "RThigh" },
+                { "LeftLowerLeg", "LShin" }, { "RightLowerLeg", "RShin" },
+                { "LeftFoot", "LFoot" }, { "RightFoot", "RFoot" },
+                { "LeftToes", "LToe" }, { "RightToes", "RToe" }
+            };
+            foreach (var side in new[] { "Left", "Right" })
+                foreach (var finger in new[] { "Thumb", "Index", "Middle", "Ring", "Little" })
+                    for (var index = 0; index < phalanges.Length; index++)
+                        aliases[$"{side} {finger} {phalanges[index]}"] =
+                            $"{side[0]}{(finger == "Little" ? "Pinky" : finger)}{index + 1}";
+
+            return table.Select(pair => new KeyValuePair<string, string[]>(pair.Key,
+                aliases.TryGetValue(pair.Key, out var alias)
+                    ? pair.Value.Concat(new[] { alias }).ToArray()
+                    : pair.Value)).ToArray();
         }
 
         /// <summary>
@@ -794,7 +816,7 @@ namespace YAMO.UnityTools.Editor
         /// standard bone names (MMRP exports). Eyes, jaw and upper chest are never
         /// mapped, matching <see cref="RemapHumanBones"/>.
         /// </summary>
-        private static bool TryBuildStandardHumanoid(
+        internal static bool TryBuildStandardHumanoid(
             GameObject model,
             out HumanBone[] human,
             out SkeletonBone[] skeleton,
@@ -811,7 +833,7 @@ namespace YAMO.UnityTools.Editor
 
             var transforms = model.GetComponentsInChildren<Transform>(true);
             var transformsByName = IndexByName(transforms);
-            if (!transformsByName.ContainsKey("Hips"))
+            if (!transformsByName.ContainsKey("Hips") && !transformsByName.ContainsKey("Hip"))
             {
                 error = "Hips 본 없음";
                 return false;
@@ -819,10 +841,19 @@ namespace YAMO.UnityTools.Editor
 
             var mapped = new List<HumanBone>(StandardHumanBoneNames.Length);
             var missingRequired = new List<string>();
+            var usesHipSpineChain = !transformsByName.ContainsKey("Hips") &&
+                                   transformsByName.ContainsKey("Hip") &&
+                                   transformsByName.ContainsKey("Spine2") &&
+                                   transformsByName.ContainsKey("Spine4");
             foreach (var pair in StandardHumanBoneNames)
             {
                 Transform transform = null;
-                foreach (var candidate in pair.Value)
+                // The Hip/Ab export's Chest node sits above the intended chest
+                // pivot. Use the verified Spine4 pivot for this skeleton only.
+                var candidates = usesHipSpineChain && pair.Key == "Chest"
+                    ? new[] { "Spine4" }
+                    : pair.Value;
+                foreach (var candidate in candidates)
                 {
                     if (transformsByName.TryGetValue(candidate, out transform))
                         break;
@@ -851,7 +882,36 @@ namespace YAMO.UnityTools.Editor
 
             human = mapped.ToArray();
             skeleton = BuildSkeleton(transforms);
+            NormalizeHipOriginRestPose(model.transform, human, skeleton);
             return human.Length > 0 && skeleton.Length > 0;
+        }
+
+        private static void NormalizeHipOriginRestPose(Transform root, HumanBone[] human, SkeletonBone[] skeleton)
+        {
+            // Some Hip/Ab FBXs store their rest pose around the pelvis origin,
+            // with both feet below zero. Mecanim derives humanScale from this
+            // reference height; leaving Hip at zero amplifies all RootT motion.
+            var hipsMapping = human.FirstOrDefault(b => b.humanName == "Hips");
+            if (hipsMapping.boneName != "Hip")
+                return;
+            var transforms = root.GetComponentsInChildren<Transform>(true);
+            var hips = transforms.First(t => t.name == hipsMapping.boneName);
+            var feetNames = human.Where(b => b.humanName == "LeftFoot" || b.humanName == "RightFoot")
+                .Select(b => b.boneName).ToArray();
+            var feet = transforms.Where(t => feetNames.Contains(t.name)).ToArray();
+            if (feet.Length != 2)
+                return;
+            var hipY = root.InverseTransformPoint(hips.position).y;
+            var floorY = feet.Min(t => root.InverseTransformPoint(t.position).y);
+            var legHeight = hipY - floorY;
+            if (legHeight <= 0 || Mathf.Abs(hipY) > legHeight * 0.1f || floorY >= 0)
+                return;
+            var offset = root.TransformVector(Vector3.up * -floorY);
+            if (hips.parent != null)
+                offset = hips.parent.InverseTransformVector(offset);
+            for (var index = 0; index < skeleton.Length; index++)
+                if (skeleton[index].name == hips.name)
+                    skeleton[index].position += offset;
         }
 
         private static Dictionary<string, Transform> IndexByName(IEnumerable<Transform> transforms)
