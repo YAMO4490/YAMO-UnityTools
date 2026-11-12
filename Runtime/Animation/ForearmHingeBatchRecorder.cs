@@ -15,6 +15,7 @@ namespace YAMO.UnityTools
         [HideInInspector, Range(0f, 1f)] public float handRotationCompensation = 1f;
         [HideInInspector] public string[] stateNames;
         [HideInInspector] public string[] resultPaths;
+        [HideInInspector] public bool continueOnError;
         [HideInInspector] public float startTime;
         [HideInInspector] public float duration;
         private Animator animator;
@@ -30,9 +31,9 @@ namespace YAMO.UnityTools
             animator = GetComponent<Animator>();
             if (animator == null || animator.avatar == null || !animator.avatar.isValid ||
                 !animator.avatar.isHuman || sampleRate <= 0 || stateNames == null || resultPaths == null ||
-                stateNames.Length != 1 || resultPaths.Length != 1)
+                stateNames.Length == 0 || stateNames.Length != resultPaths.Length)
             {
-                Debug.LogError("[Mocap Pipeline] 한 항목의 유효한 Humanoid 녹화 구성이 필요합니다.");
+                Debug.LogError("[Mocap Pipeline] 유효한 Humanoid와 항목별 녹화 결과 경로가 필요합니다.");
                 ExitPlayMode(); return;
             }
             for (var i = 0; i < (int)HumanBodyBones.LastBone; i++)
@@ -48,32 +49,46 @@ namespace YAMO.UnityTools
         }
         private IEnumerator RecordSafely()
         {
-            var recording = RecordState();
-            try
+            for (var index = 0; index < stateNames.Length; index++)
             {
-                while (true)
+                var resultPath = resultPaths[index];
+                var recording = RecordState(stateNames[index], resultPath);
+                var failed = false;
+                try
                 {
-                    bool more;
-                    try { more = recording.MoveNext(); }
-                    catch (Exception exception)
+                    while (true)
                     {
-                        Debug.LogException(exception);
-                        try { File.WriteAllText(resultPaths[0] + ".error.txt", exception.ToString()); }
-                        catch (Exception writeError) { Debug.LogException(writeError); }
-                        break;
+                        bool more;
+                        try { more = recording.MoveNext(); }
+                        catch (Exception exception)
+                        {
+                            failed = true;
+                            Debug.LogException(exception);
+                            try { File.WriteAllText(resultPath + ".error.txt", exception.Message); }
+                            catch (Exception writeError) { Debug.LogException(writeError); }
+                            break;
+                        }
+                        if (!more) break;
+                        yield return recording.Current;
                     }
-                    if (!more) break;
-                    yield return recording.Current;
                 }
+                finally
+                {
+                    (recording as IDisposable)?.Dispose();
+                    Release();
+                }
+
+                if (failed && !continueOnError)
+                    break;
             }
-            finally { (recording as IDisposable)?.Dispose(); Release(); }
             ExitPlayMode();
         }
-        private IEnumerator RecordState()
+
+        private IEnumerator RecordState(string stateName, string resultPath)
         {
             yield return null;
             previousTimeScale = Time.timeScale; ownsTimeScale = true; Time.timeScale = 0f;
-            animator.Play(stateNames[0], 0, 0f); animator.Update(0f);
+            animator.Play(stateName, 0, 0f); animator.Update(0f);
             yield return null; animator.Update(0f);
             var clipLength = animator.GetCurrentAnimatorStateInfo(0).length;
             var length = duration > 0f ? duration : clipLength - startTime;
@@ -89,7 +104,7 @@ namespace YAMO.UnityTools
                 animator.Update(time - sampledTime); sampledTime = time;
                 yield return null;
             }
-            partialPath = resultPaths[0] + ".partial";
+            partialPath = resultPath + ".partial";
             stream = new MocapPoseStream(partialPath, frames, sampleRate, length, bonePaths.ToArray());
             var axis = hingeAxisIndex == 0 ? Vector3.right : hingeAxisIndex == 1 ? Vector3.up : Vector3.forward;
             for (var frame = 0; frame < frames; frame++)
@@ -109,8 +124,8 @@ namespace YAMO.UnityTools
                 yield return null;
             }
             stream.Dispose(); stream = null;
-            if (File.Exists(resultPaths[0])) File.Delete(resultPaths[0]);
-            File.Move(partialPath, resultPaths[0]); partialPath = null;
+            if (File.Exists(resultPath)) File.Delete(resultPath);
+            File.Move(partialPath, resultPath); partialPath = null;
         }
         private void OnDisable() { StopAllCoroutines(); Release(); }
         private void OnDestroy() { Release(); }

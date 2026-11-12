@@ -120,6 +120,7 @@ namespace YAMO.UnityTools.Editor
 
                 recorder = targetAnimator.gameObject.AddComponent<YAMO.UnityTools.ForearmHingeBatchRecorder>();
                 recorder.sampleRate = settings.SampleRate;
+                recorder.continueOnError = settings.ContinueOnError;
                 recorder.enableHingeCorrection = settings.EnableHingeCorrection;
                 recorder.hingeAxisIndex = (int)settings.HingeAxis;
                 recorder.handRotationCompensation = settings.HandRotationCompensation;
@@ -357,6 +358,9 @@ namespace YAMO.UnityTools.Editor
                             "Mocap → Biped FBX",
                             $"[{index + 1}/{state.Items.Count}] {item.OutputName} 최종 FBX Export",
                             index / (float)Mathf.Max(1, state.Items.Count));
+                        var errorPath = item.ResultPath + ".error.txt";
+                        if (!File.Exists(item.ResultPath) && File.Exists(errorPath))
+                            throw new InvalidOperationException(File.ReadAllText(errorPath));
                         hingeResult = ForearmHingeBakeService.LoadPlayModeResult(
                             item.ResultPath,
                             state.SampleRate,
