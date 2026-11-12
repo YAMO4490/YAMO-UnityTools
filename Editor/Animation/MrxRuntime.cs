@@ -8,6 +8,19 @@ namespace YAMO.UnityTools.Editor
     internal static class MrxRuntime
     {
         private const string Platform = "Windows-x64";
+        private const string PackageAssetPath = "Packages/com.yamo.unitytools";
+        private static string toolDirectory;
+
+        internal static string InitializeOnMainThread()
+        {
+            var package = UnityEditor.PackageManager.PackageInfo.FindForAssetPath(PackageAssetPath);
+            var root = package?.resolvedPath ?? Path.GetFullPath(PackageAssetPath);
+            toolDirectory = Path.Combine(root, "Tools~", "Mrx");
+            return Path.Combine(toolDirectory, "project_bundle.py");
+        }
+
+        private static string ToolDirectory => toolDirectory ??
+            Path.GetFullPath(Path.Combine(PackageAssetPath, "Tools~", "Mrx"));
 
         private static IEnumerable<string> RuntimeRoots()
         {
@@ -15,14 +28,8 @@ namespace YAMO.UnityTools.Editor
             if (!string.IsNullOrWhiteSpace(configured))
                 yield return Path.GetFullPath(configured);
 
-            yield return Path.Combine(Path.GetDirectoryName(ToolFile("project_bundle.py")), "Runtime", Platform);
+            yield return Path.Combine(ToolDirectory, "Runtime", Platform);
             yield return Path.GetFullPath(Path.Combine("Assets/StreamingAssets/StreamingleRecording", Platform));
-        }
-
-        internal static string ToolFile(string name)
-        {
-            var package = UnityEditor.PackageManager.PackageInfo.FindForAssetPath("Packages/com.yamo.unitytools");
-            return Path.Combine(package.resolvedPath, "Tools~", "Mrx", name);
         }
 
         internal static string BindPosePath()

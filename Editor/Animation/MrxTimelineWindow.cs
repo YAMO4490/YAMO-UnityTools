@@ -366,6 +366,7 @@ namespace YAMO.UnityTools.Editor
             var bundle = Path.Combine(work, "bundle");
             var body = Path.Combine(work, "body.jsonl");
             var wav = Path.Combine(work, "audio.wav");
+            var projector = MrxRuntime.InitializeOnMainThread();
             var audio = await Task.Run(() =>
             {
                 Directory.CreateDirectory(work);
@@ -382,7 +383,6 @@ namespace YAMO.UnityTools.Editor
                 var reader = MrxRuntime.FindFile("StreamingleMrxStreaming2.dll");
                 var pythonHome = MrxNativeReader.SelectPythonHome(
                     Environment.GetEnvironmentVariable("YAMO_MRX_PYTHON_HOME"), MrxRuntime.PythonHomes());
-                var projector = MrxRuntime.ToolFile("project_bundle.py");
                 Run(Path.Combine(pythonHome, "python.exe"), "-B", projector,
                     Path.Combine(Path.GetDirectoryName(reader), "MrxModules"), bundle, body);
                 return audioMetadata;
