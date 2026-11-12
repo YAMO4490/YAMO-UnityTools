@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
@@ -10,23 +11,50 @@ namespace YAMO.UnityTools.Editor
 {
     internal static class MrxHumanoidClip
     {
-        internal static AnimationClip Build(string path, string output, string name)
+        internal static (string[] names, int[] parents, (float time, float[] pose)[] samples) ReadSamples(string path)
         {
+            JToken definition = null;
+            var samples = new List<(long timeNs, float[] pose)>();
+            foreach (var line in File.ReadLines(path))
+            {
+                var frame = JObject.Parse(line);
+                var subjects = (JArray)frame["subjects"];
+                if (subjects.Count != 1)
+                    throw new InvalidDataException("현재는 MRX 파일당 스켈레톤 하나를 지원합니다.");
 
-            var frames = File.ReadLines(path).Select(JObject.Parse)
-                .OrderBy(frame => (long)frame["timeNs"])
-                .GroupBy(frame => (float)((long)frame["timeNs"] / 1e9))
-                .Select(group => (time: group.Key, frame: group.Last())).ToArray();
-            if (frames.Length < 2)
+                var subject = subjects[0];
+                if (definition == null)
+                    definition = subject;
+                if ((int)subject["id"] != (int)definition["id"] ||
+                    !JToken.DeepEquals(subject["seg_names"], definition["seg_names"]) ||
+                    !JToken.DeepEquals(subject["parents"], definition["parents"]))
+                    throw new InvalidDataException("녹화 도중 MRX 스켈레톤 정의가 변경되었습니다.");
+
+                var local = (JArray)subject["local"];
+                if (local.Count != ((JArray)definition["seg_names"]).Count)
+                    throw new InvalidDataException("MRX 포즈의 본 개수가 일치하지 않습니다.");
+                var pose = new float[local.Count * 7];
+                for (var bone = 0; bone < local.Count; bone++)
+                {
+                    for (var channel = 0; channel < 7; channel++)
+                        pose[bone * 7 + channel] = (float)local[bone][channel];
+                }
+                samples.Add(((long)frame["timeNs"], pose));
+            }
+
+            var ordered = samples.OrderBy(sample => sample.timeNs)
+                .GroupBy(sample => (float)(sample.timeNs / 1e9))
+                .Select(group => (time: group.Key, pose: group.Last().pose)).ToArray();
+            if (ordered.Length < 2)
                 throw new InvalidDataException("Humanoid 모션에 필요한 MRX 포즈가 부족합니다.");
+            return (definition["seg_names"].Values<string>().ToArray(),
+                definition["parents"].Values<int>().ToArray(), ordered);
+        }
 
-            var first = (JArray)frames[0].frame["subjects"];
-            if (first.Count != 1)
-                throw new InvalidDataException("현재는 MRX 파일당 스켈레톤 하나를 지원합니다.");
-
-            var subjectId = (int)first[0]["id"];
-            var names = first[0]["seg_names"].Values<string>().ToArray();
-            var parents = first[0]["parents"].Values<int>().ToArray();
+        internal static AnimationClip Build(string path, string output, string name,
+            (string[] names, int[] parents, (float time, float[] pose)[] samples) data)
+        {
+            var (names, parents, samples) = data;
             if (parents.Length != names.Length || parents.Where((parent, index) =>
                 parent < 0 || parent > names.Length || parent == index + 1).Any())
                 throw new InvalidDataException("MRX 스켈레톤 부모 인덱스가 잘못되었습니다.");
@@ -52,7 +80,8 @@ namespace YAMO.UnityTools.Editor
                         throw new InvalidDataException($"MMRP 기준 자세에 '{names[index]}' 본이 없습니다.");
                     var direction = Position(bind["t"]);
                     bones[index].localPosition = parent == 0 ? Vector3.zero :
-                        direction.normalized * Position(first[0]["local"][index]).magnitude;
+                        direction.normalized * new Vector3(samples[0].pose[index * 7], samples[0].pose[index * 7 + 1],
+                            samples[0].pose[index * 7 + 2]).magnitude;
                     bones[index].localRotation = BindRotation(bind);
                 }
 
@@ -66,14 +95,6 @@ namespace YAMO.UnityTools.Editor
 
                 var bindings = new System.Collections.Generic.List<EditorCurveBinding>();
                 var curves = new System.Collections.Generic.List<AnimationCurve>();
-                var samples = frames.Select(entry =>
-                {
-                    var subject = entry.frame["subjects"].SingleOrDefault(item => (int)item["id"] == subjectId);
-                    if (subject == null || !JToken.DeepEquals(subject["seg_names"], first[0]["seg_names"]) ||
-                        !JToken.DeepEquals(subject["parents"], first[0]["parents"]))
-                        throw new InvalidDataException("녹화 도중 MRX 스켈레톤 정의가 변경되었습니다.");
-                    return (entry.time, local: (JArray)subject["local"]);
-                }).ToArray();
                 var properties = new[] { "m_LocalPosition.x", "m_LocalPosition.y", "m_LocalPosition.z",
                     "m_LocalRotation.x", "m_LocalRotation.y", "m_LocalRotation.z", "m_LocalRotation.w" };
                 for (var bone = 0; bone < bones.Length; bone++)
@@ -83,7 +104,7 @@ namespace YAMO.UnityTools.Editor
                     {
                         var sign = channel == 0 || channel == 4 || channel == 5 ? -1 : 1;
                         var keys = samples.Select(sample => new Keyframe(sample.time,
-                            sign * (float)sample.local[bone][channel])).ToArray();
+                            sign * sample.pose[bone * 7 + channel])).ToArray();
                         bindings.Add(EditorCurveBinding.FloatCurve(bonePath, typeof(Transform), properties[channel]));
                         curves.Add(LinearCurve(keys));
                     }

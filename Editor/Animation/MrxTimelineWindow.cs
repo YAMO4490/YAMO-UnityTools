@@ -20,6 +20,7 @@ namespace YAMO.UnityTools.Editor
         private readonly HashSet<AnimationTrack> excluded = new HashSet<AnimationTrack>();
         private TimelineAsset currentTimeline;
         private bool busy;
+        private string registrationStatus;
         private int tab;
         private bool customRange;
         private int exportMode;
@@ -62,6 +63,9 @@ namespace YAMO.UnityTools.Editor
                 rangeStart = 0;
                 rangeEnd = timeline.duration;
             }
+
+            if (busy && !string.IsNullOrEmpty(registrationStatus))
+                EditorGUILayout.HelpBox(registrationStatus, MessageType.Info);
 
             tab = GUILayout.Toolbar(tab, new[] { "등록", "추출" });
             using (new EditorGUI.DisabledScope(busy))
@@ -202,7 +206,16 @@ namespace YAMO.UnityTools.Editor
                 {
                     while (entry.files.Count != 0)
                     {
-                        await ImportAsync(director, entry.avatar, entry.files[0], folder, start, Vector3.zero);
+                        var name = Path.GetFileName(entry.files[0]);
+                        registrationStatus = $"{name} · MRX 읽는 중";
+                        Repaint();
+                        var progress = new Progress<string>(stage =>
+                        {
+                            registrationStatus = $"{name} · {stage}";
+                            if (this != null)
+                                Repaint();
+                        });
+                        await ImportAsync(director, entry.avatar, entry.files[0], folder, start, Vector3.zero, progress);
                         entry.files.RemoveAt(0);
                     }
                 }
@@ -215,6 +228,7 @@ namespace YAMO.UnityTools.Editor
             finally
             {
                 busy = false;
+                registrationStatus = null;
                 if (this != null)
                     Repaint();
             }
@@ -345,7 +359,7 @@ namespace YAMO.UnityTools.Editor
             }
         }
         internal static async Task<TimelineClip> ImportAsync(PlayableDirector target, Animator animator, string source, string folder,
-            double start, Vector3 offset)
+            double start, Vector3 offset, IProgress<string> progress = null)
         {
             if (animator.avatar == null || !animator.avatar.isValid || !animator.avatar.isHuman)
                 throw new InvalidOperationException("유효한 Humanoid Avatar가 지정된 Animator를 선택하세요.");
@@ -367,7 +381,7 @@ namespace YAMO.UnityTools.Editor
             var body = Path.Combine(work, "body.jsonl");
             var wav = Path.Combine(work, "audio.wav");
             var projector = MrxRuntime.InitializeOnMainThread();
-            var audio = await Task.Run(() =>
+            var (audio, samples) = await Task.Run(() =>
             {
                 Directory.CreateDirectory(work);
                 MrxNativeReader.Export(source, bundle);
@@ -375,23 +389,27 @@ namespace YAMO.UnityTools.Editor
                 var audioMetadata = metadata["audio"] as JObject;
                 if (audioMetadata != null)
                 {
+                    progress?.Report("오디오 디코딩 중");
                     var ratio = (double?)audioMetadata["clock"]?["ratio"] ?? 1.0;
                     MrxNativeAudio.DecodePreviewAudio(Path.Combine(bundle, "audio.ogg"), wav,
                         System.Threading.CancellationToken.None, clockRatio: ratio);
                 }
 
+                progress?.Report("모션 데이터 변환 중");
                 var reader = MrxRuntime.FindFile("StreamingleMrxStreaming2.dll");
                 var pythonHome = MrxNativeReader.SelectPythonHome(
                     Environment.GetEnvironmentVariable("YAMO_MRX_PYTHON_HOME"), MrxRuntime.PythonHomes());
                 Run(Path.Combine(pythonHome, "python.exe"), "-B", projector,
                     Path.Combine(Path.GetDirectoryName(reader), "MrxModules"), bundle, body);
-                return audioMetadata;
+                progress?.Report("모션 샘플 읽는 중");
+                return (audioMetadata, MrxHumanoidClip.ReadSamples(body));
             });
 
             if (target == null || animator == null || target.playableAsset != timeline)
                 throw new InvalidOperationException("가져오는 동안 Timeline 또는 Animator가 변경되었습니다.");
             var name = Path.GetFileNameWithoutExtension(source);
-            var animation = MrxHumanoidClip.Build(body, output, name);
+            progress?.Report("Timeline 클립 생성 중");
+            var animation = MrxHumanoidClip.Build(body, output, name, samples);
 
             Undo.RegisterCompleteObjectUndo(target, "Add MRX take");
             Undo.RegisterCompleteObjectUndo(timeline, "Add MRX take");
