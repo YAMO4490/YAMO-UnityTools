@@ -6,6 +6,8 @@ using Object = UnityEngine.Object;
 
 namespace YAMO.UnityTools.Editor.Tests
 {
+    // Test binding descriptors are immutable value data and own no runtime resources.
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public class BlendShapeCurveRemapperTests
     {
         private const string FacePath = "Avatar/Face";

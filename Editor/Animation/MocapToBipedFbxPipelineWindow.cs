@@ -16,9 +16,7 @@ namespace YAMO.UnityTools.Editor
     /// the FBX animation import setup that used to be its own window.
     /// </summary>
     // Open editor window identity is owned by OnEnable/OnDisable, not Play Mode.
-#if UNITY_7000_0_OR_NEWER
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
-#endif
     public sealed class MocapToBipedFbxPipelineWindow : EditorWindow
     {
         private enum Tab

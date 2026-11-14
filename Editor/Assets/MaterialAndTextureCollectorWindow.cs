@@ -602,12 +602,12 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
                 duplicateMaterialMap[mat.name].Add(mat);
 
                 Shader shader = mat.shader;
-                int count = ShaderUtil.GetPropertyCount(shader);
+                int count = shader.GetPropertyCount();
                 for (int i = 0; i < count; i++)
                 {
                     // 텍스처가 아닌 속성에 GetTexture 를 호출하면 Unity 가 속성마다 에러 로그를 찍는다 (CopyTextures 와 동일한 가드)
-                    if (ShaderUtil.GetPropertyType(shader, i) != ShaderUtil.ShaderPropertyType.TexEnv) continue;
-                    string propName = ShaderUtil.GetPropertyName(shader, i);
+                    if (shader.GetPropertyType(i) != UnityEngine.Rendering.ShaderPropertyType.Texture) continue;
+                    string propName = shader.GetPropertyName(i);
                     Texture tex = mat.GetTexture(propName);
                     if (tex == null || seenTextures.Contains(tex)) continue;
                     seenTextures.Add(tex);
@@ -720,20 +720,20 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         IDictionary<string, string> maxMainTextureGuidMap)
     {
         Shader shader = original.shader;
-        int count = ShaderUtil.GetPropertyCount(shader);
+        int count = shader.GetPropertyCount();
         Texture mainTextureForMax = GetMainTextureForMax(original);
 
         string[] maskProps = { "_MaskMap", "_OcclusionMap", "_DetailMask", "_RoughnessMap", "_MetallicGlossMap" };
 
         for (int i = 0; i < count; i++)
         {
-            string prop = ShaderUtil.GetPropertyName(shader, i);
+            string prop = shader.GetPropertyName(i);
 
             // ⚠ 속성 타입 검사를 GetTexture보다 먼저 할 것.
             //    텍스처가 아닌 속성(Float/Color/Vector)에 GetTexture를 호출하면 Unity가
             //    "Material X ... doesn't have a texture property Y" 에러를 찍는다. 반환값은 null이라
             //    기능상 문제는 없지만, 아바타 1개당 수십 건씩 쌓여 콘솔에서 진짜 에러가 묻힌다.
-            bool isTexEnv = ShaderUtil.GetPropertyType(shader, i) == ShaderUtil.ShaderPropertyType.TexEnv;
+            bool isTexEnv = shader.GetPropertyType(i) == UnityEngine.Rendering.ShaderPropertyType.Texture;
             bool isMask = System.Array.IndexOf(maskProps, prop) >= 0;
             if (!isTexEnv && !isMask) continue;
 

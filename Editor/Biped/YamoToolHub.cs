@@ -234,6 +234,12 @@ namespace YAMO.UnityTools.Editor
                 desc:  "휴머노이드 머슬 클립 압축. RDP/Cubic Hermite 키 감소,\n" +
                        "채널별 tolerance, 미사용 채널 드롭, YAML 후처리.",
                 onClick: () => GetWindow<AnimClipReducerWindow>("Anim Clip Reducer"));
+#if UNITY_6000_0_OR_NEWER
+            DrawLauncherButton(
+                title: "4. Avatar Snapshot",
+                desc:  "Play Mode의 아바타 포즈와 블렌드셰이프를 편집 가능한 프리팹으로 저장.",
+                onClick: AvatarSnapshotWindow.Open);
+#endif
         }
 
         private static void DrawLauncherButton(string title, string desc, System.Action onClick)

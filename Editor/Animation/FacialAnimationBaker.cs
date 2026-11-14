@@ -25,6 +25,8 @@ namespace YAMO.UnityTools.Editor
     /// 바인딩(path / propertyName / 블렌드셰이프 이름)을 그대로 보존하므로,
     /// 결과 .anim 은 기존과 동일하게 어떤 캐릭터에도 적용할 수 있다.
     /// </summary>
+    // Open editor window identity is owned by OnEnable/OnDisable, not Play Mode.
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public class FacialAnimationBaker : EditorWindow
     {
         private static FacialAnimationBaker _instance;

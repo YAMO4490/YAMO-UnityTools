@@ -50,7 +50,7 @@ Max FBX 출력이 필요하면 OptiTrack/MMRP 파이프라인 탭을 대신 사�
      (`Spine → {접두사}_Spine`, `Chest → {접두사}_Spine1`; 접두사는 `_Hips` 본에서 자동 탐지)
    - MMRP: Unity 표준 본 이름을 그대로 매핑 (`Little`/`Pinky` 손가락 이름 모두 허용), `MMRP_*` 헬퍼 노드는 매핑하지 않음
 6. **Left Eye / Right Eye / Jaw / UpperChest 매핑 제거** — 두 형식 공통, Neck·Head만 유지
-7. 복사본의 **Avatar를 모션 파일 Avatar로 등록** (Copy From Other Avatar)
+7. 복사본의 **Upper Arm Twist = 0.5 / Lower Arm Twist = 0**을 적용하여 Avatar를 생성한 뒤, **모션 파일 Avatar로 등록** (Copy From Other Avatar) — OptiTrack/MMRP 공통
 8. 모션 파일에 **1·2의 클립 설정**(압축 Off · 클립명 · Root Bake)까지 적용
 
 ### 사용법

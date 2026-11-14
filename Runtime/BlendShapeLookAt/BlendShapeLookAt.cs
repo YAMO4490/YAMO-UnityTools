@@ -86,6 +86,7 @@ namespace YAMO.UnityTools
         float _curH, _curV;
         float _velH, _velV;
         Camera _cam;
+        Mesh _cachedMesh;
 
         void OnEnable()
         {
@@ -100,14 +101,17 @@ namespace YAMO.UnityTools
 
         void CacheIndices()
         {
-            if (faceMesh == null) return;
-            var mesh = faceMesh.sharedMesh;
+            _cachedMesh = faceMesh != null ? faceMesh.sharedMesh : null;
             for (int i = 0; i < 8; i++)
-                _idx[i] = mesh.GetBlendShapeIndex(k_ShapeNames[i]);
+                _idx[i] = _cachedMesh != null ? _cachedMesh.GetBlendShapeIndex(k_ShapeNames[i]) : -1;
         }
 
         void LateUpdate()
         {
+            var mesh = faceMesh != null ? faceMesh.sharedMesh : null;
+            if (mesh != _cachedMesh) CacheIndices();
+            if (mesh == null) return;
+
             if (!active)
             {
                 if (faceMesh != null)

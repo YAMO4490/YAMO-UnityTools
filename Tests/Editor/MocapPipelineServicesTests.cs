@@ -18,7 +18,7 @@ namespace YAMO.UnityTools.Editor.Tests
         {
             Assert.That(new ForearmHingeBakeSettings().SampleRate, Is.EqualTo(60));
             Assert.That(new ForearmHingeBakeSettings().EnableHingeCorrection, Is.True);
-            Assert.That(new ForearmHingeBakeSettings().HandRotationCompensation, Is.EqualTo(1f));
+            Assert.That(new ForearmHingeBakeSettings().HandRotationCompensation, Is.EqualTo(0.5f));
             Assert.That(new BipedFbxExportSettings().FrameRate, Is.EqualTo(60f));
             Assert.That(new BipedFbxExportSettings().RecordBlendShapes, Is.False);
             Assert.That(new BipedFbxExportSettings().ClampedTangents, Is.False);
@@ -26,7 +26,7 @@ namespace YAMO.UnityTools.Editor.Tests
             Assert.That(new MocapPipelineSettings().SampleRate, Is.EqualTo(60));
             Assert.That(new MocapPipelineSettings().HingeBakeMode, Is.EqualTo(MocapHingeBakeMode.PlayMode));
             Assert.That(new MocapPipelineSettings().EnableHingeCorrection, Is.True);
-            Assert.That(new MocapPipelineSettings().HandRotationCompensation, Is.EqualTo(1f));
+            Assert.That(new MocapPipelineSettings().HandRotationCompensation, Is.EqualTo(0.5f));
             Assert.That(new MocapPipelineSettings().RecordBlendShapes, Is.False);
             Assert.That(new MocapPipelineSettings().ClampedTangents, Is.False);
         }

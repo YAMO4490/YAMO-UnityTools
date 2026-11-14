@@ -97,6 +97,37 @@ namespace YAMO.UnityTools.Editor.Tests
         }
 
         [Test]
+        public void HipOriginSkeletonUsesSpine2AndGroundedReferenceHeight()
+        {
+            var root = new GameObject("HipOrigin");
+            try
+            {
+                foreach (var name in StandardBodyBones)
+                {
+                    var bone = new GameObject(name == "Hips" ? "Hip" : name == "Spine" ? "Spine2" : name);
+                    bone.transform.SetParent(root.transform, false);
+                    if (name.EndsWith("Foot"))
+                        bone.transform.localPosition = Vector3.down * 0.8f;
+                }
+                new GameObject("Ab").transform.SetParent(root.transform, false);
+                new GameObject("Spine4").transform.SetParent(root.transform, false);
+                var method = typeof(OptiTrackMotionBindingService).GetMethod(
+                    "TryBuildStandardHumanoid", BindingFlags.NonPublic | BindingFlags.Static);
+                var arguments = new object[] { root, null, null, null };
+                Assert.That((bool)method.Invoke(null, arguments), Is.True);
+                Assert.That(((HumanBone[])arguments[1]).Single(b => b.humanName == "Spine").boneName,
+                    Is.EqualTo("Spine2"));
+                Assert.That(((HumanBone[])arguments[1]).Single(b => b.humanName == "Chest").boneName,
+                    Is.EqualTo("Spine4"));
+                Assert.That(((HumanBone[])arguments[1]).Any(b => b.humanName == "UpperChest"), Is.False);
+                Assert.That(((SkeletonBone[])arguments[2]).Single(b => b.name == "Hip").position.y,
+                    Is.EqualTo(0.8f).Within(0.00001f));
+                Assert.That(root.transform.Find("Hip").localPosition, Is.EqualTo(Vector3.zero));
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        [Test]
         public void RemapDropsEyesJawUpperChestAndMmrpHelperNodes()
         {
             var captured = new[]
@@ -133,8 +164,8 @@ namespace YAMO.UnityTools.Editor.Tests
 
             var remapped = OptiTrackMotionBindingService.RemapHumanBones(captured, MocapSourceFormat.OptiTrack, "001");
 
-            Assert.That(remapped.Single(bone => bone.humanName == "Spine").boneName, Is.EqualTo("001_Spine"));
-            Assert.That(remapped.Single(bone => bone.humanName == "Chest").boneName, Is.EqualTo("001_Spine1"));
+            Assert.That(remapped.Single(bone => bone.humanName == "Spine").boneName, Is.EqualTo("001_Spine1"));
+            Assert.That(remapped.Single(bone => bone.humanName == "Chest").boneName, Is.EqualTo("001_Spine3"));
             Assert.That(remapped.Any(bone => bone.humanName == "UpperChest"), Is.False);
             Assert.That(remapped.Any(bone => bone.humanName == "LeftEye"), Is.False);
         }
@@ -171,6 +202,22 @@ namespace YAMO.UnityTools.Editor.Tests
         }
 
         [Test]
+        public void DetectAlternateMmrpRequiresFullHipAbSpineChain()
+        {
+            var root = new GameObject("AlternateMmrp");
+            try
+            {
+                foreach (var name in new[] { "Hip", "Ab", "Spine2" })
+                    new GameObject(name).transform.SetParent(root.transform, false);
+                Assert.That(OptiTrackMotionBindingService.DetectSourceFormat(root.transform), Is.Null);
+                new GameObject("Spine4").transform.SetParent(root.transform, false);
+                Assert.That(OptiTrackMotionBindingService.DetectSourceFormat(root.transform),
+                    Is.EqualTo(MocapSourceFormat.MMRP));
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        [Test]
         public void GeneratedAssetsAreRecognizedBySuffix()
         {
             Assert.That(OptiTrackMotionBindingService.IsBackupAsset("Assets/Motion/Drip_003_Backup.fbx"), Is.True);
@@ -178,6 +225,51 @@ namespace YAMO.UnityTools.Editor.Tests
             Assert.That(OptiTrackMotionBindingService.IsGeneratedAsset("Assets/Motion/Drip_003_T.fbx"), Is.True);
             Assert.That(OptiTrackMotionBindingService.IsGeneratedAsset("Assets/Motion/Drip_003_Backup.fbx"), Is.True);
             Assert.That(OptiTrackMotionBindingService.IsGeneratedAsset("Assets/Motion/Drip_003.fbx"), Is.False);
+        }
+
+        [Test]
+        public void HumanoidCaptureFallbackDoesNotInvokeNativePointerOverload()
+        {
+            var model = new GameObject("UnsupportedSkeleton");
+            try
+            {
+                var method = typeof(OptiTrackMotionBindingService).GetMethod(
+                    "TryCaptureHumanoid", BindingFlags.NonPublic | BindingFlags.Static);
+                var arguments = new object[] { model, null, null, false };
+                Assert.DoesNotThrow(() => method.Invoke(null, arguments));
+            }
+            finally
+            {
+                Object.DestroyImmediate(model);
+            }
+        }
+
+        [Test]
+        public void RecordedFixedBoneTranslationSurvivesClipRebuild()
+        {
+            var method = typeof(ForearmHingeBakeService).GetMethod(
+                "BuildClipFromRecordedPaths", BindingFlags.NonPublic | BindingFlags.Static);
+            var clip = (AnimationClip)method.Invoke(null, new object[]
+            {
+                "FixedPosition", 30, new[] { "Bip001" },
+                new[] { new[] { Quaternion.identity, Quaternion.identity } },
+                new[] { new[] { new Vector3(1, 2, 3), new Vector3(1, 2, 3) } }, 2
+            });
+            var root = new GameObject("Playback");
+            var bone = new GameObject("Bip001");
+            bone.transform.SetParent(root.transform, false);
+            try
+            {
+                bone.transform.localPosition = new Vector3(20, 30, 40);
+                clip.SampleAnimation(root, 0);
+                Assert.That(Vector3.Distance(bone.transform.localPosition, new Vector3(1, 2, 3)),
+                    Is.LessThan(0.00001f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+                Object.DestroyImmediate(clip);
+            }
         }
 
         private static HumanBone Bone(string humanName, string boneName)

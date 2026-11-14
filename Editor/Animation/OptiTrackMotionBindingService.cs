@@ -63,9 +63,7 @@ namespace YAMO.UnityTools.Editor
     /// the mocap window's binding-only tool and the batch pipeline workflows.
     /// </summary>
     // Editor mapping tables and reflection caches are assembly-lifetime metadata.
-#if UNITY_7000_0_OR_NEWER
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
-#endif
     public static class OptiTrackMotionBindingService
     {
         private const string SpineBone = "_Spine1";
@@ -733,7 +731,7 @@ namespace YAMO.UnityTools.Editor
             GameObject instance = null;
             try
             {
-                instance = (GameObject)PrefabUtility.InstantiatePrefab(model, clone);
+                instance = (GameObject)UnityEngine.Object.Instantiate(model, clone);
                 instance.name = model.name;
                 var tool = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.AvatarSetupTool");
                 const BindingFlags flags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;

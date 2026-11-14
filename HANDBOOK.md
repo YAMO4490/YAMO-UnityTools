@@ -572,9 +572,11 @@ namespace YAMO.UnityTools.Editor
 
 **이 문서 업데이트 원칙**: 스크립트 추가·제거·이름 변경하면 §2(폴더 구조)와 §5(상세 해설)에 즉시 반영. asmdef 변경은 §3, 의존성 변경은 §4, 컨벤션은 §6, 변경이 누적되면 §9 에 한 줄 추가.
 
+## Avatar Snapshot (Unity 6/7)
 
-## Mocap 파이프라인 메모리 개선 (2026-10-12)
+1. Play Mode에서 아바타를 원하는 프레임에 두고, 필요하면 Unity를 일시정지한다.
+2. Hierarchy에서 아바타 루트를 선택하고 `Tools > YAMO > Animation > Avatar Snapshot`을 연다. Tool Hub의 Animation 탭에서도 열 수 있다.
+3. 저장 폴더를 지정하거나 씬 파일 옆 `Snapshot` 폴더를 기본값으로 사용한 뒤 저장한다. 같은 이름의 기존 프리팹은 덮어쓰지 않는다.
+4. Play Mode를 종료하고 Project 창에서 프리팹을 씬으로 드래그한다. Transform과 Skinned Mesh Renderer의 BlendShapes를 직접 조정할 수 있다.
 
-OptiTrack/MMRP 공통 파이프라인은 한 모션씩 준비, 디스크 포즈 녹화, 본별 클립 생성, Unity FBX 출력, 메모리 정리, Max 좌표 변환 순서로 처리한다. MocapPoseStream, MocapPoseClipBuilder, MocapEditPoseRecorder, MocapMemoryWork, BipedFbxExportStages가 각 단계를 담당하며, 취소와 오류 체크포인트를 지원한다. 고정된 본 위치도 상수 커브로 보존한다.
-
-Milfy 및 Rurune Biped 템플릿을 추가하고 Sompunch 템플릿을 갱신했다. 고정 본 위치는 달타 51개 본의 FBX 출력 및 재임포트로 검증했으며, 장시간 다중 모션의 메모리 스트레스 검증은 별도로 필요하다.
+씬에 있던 프리팹은 플레이 진입 전에 원본 경로를 기록해 Variant로 저장한다. 런타임에 생성되어 Unity가 원본 연결을 제공하지 않는 오브젝트는 일반 프리팹으로 저장된다. 사본은 Animator, Animation, Timeline, 제약, MonoBehaviour와 Cloth의 구동을 끄고 Rigidbody를 Kinematic으로 바꾼 상태로 저장한다. 아바타 내부와 프로젝트 에셋 참조를 보존하며, 씬 밖으로 함께 가져갈 수 없는 참조는 비우고 건수를 표시한다. 본과 표정 가중치를 저장하는 기능으로, GPU 변형이나 Cloth의 정점별 시뮬레이션 결과는 베이크하지 않는다.

@@ -6,6 +6,8 @@ using UnityEngine;
 
 namespace YAMO.UnityTools.Editor
 {
+    // Editor required-bone and exclusion tables are immutable after initialization.
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public class HumanoidBoneExtractorWindow : EditorWindow
     {
         [SerializeField] private GameObject _sourceObject;

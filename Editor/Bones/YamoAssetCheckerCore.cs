@@ -307,7 +307,7 @@ namespace YAMO.UnityTools.Editor
         public static List<MissingBoneResult> CheckMissingBonesInScene()
         {
             var results = new List<MissingBoneResult>();
-            var renderers = Object.FindObjectsByType<SkinnedMeshRenderer>(FindObjectsSortMode.None);
+            var renderers = Object.FindObjectsByType<SkinnedMeshRenderer>();
             foreach (var smr in renderers)
             {
                 var r = CheckRenderer(smr);
@@ -759,7 +759,7 @@ namespace YAMO.UnityTools.Editor
         public static List<BonelessSmrEntry> ScanBonelessSmrsInScene()
         {
             return ScanBonelessSmrs(Object.FindObjectsByType<SkinnedMeshRenderer>(
-                FindObjectsInactive.Include, FindObjectsSortMode.None));
+                FindObjectsInactive.Include));
         }
 
         public static List<BonelessSmrEntry> ScanBonelessSmrsInChildren(GameObject root)

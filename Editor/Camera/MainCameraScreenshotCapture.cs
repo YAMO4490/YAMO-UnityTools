@@ -17,11 +17,28 @@ namespace YAMO.UnityTools.Editor
     {
         private const string MenuPath = "Tools/YAMO/Camera/Capture Main Camera Screenshot";
         private const string ShortcutId = "YAMO/Capture Main Camera Screenshot";
+        private const string AlphaMenuPath = "Tools/YAMO/Camera/Screenshot Include Alpha";
+        private const string AlphaPreferenceKey = "YAMO.MainCameraScreenshot.IncludeAlpha";
         private const string OutputFolder = "Assets/Screenshots";
         private const int FallbackWidth = 1920;
         private const int FallbackHeight = 1080;
         private const string UniversalRenderPipelineAssetTypeName =
             "UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset";
+
+        private static bool IncludeAlpha => EditorPrefs.GetBool(AlphaPreferenceKey, false);
+
+        [MenuItem(AlphaMenuPath)]
+        private static void ToggleIncludeAlpha()
+        {
+            EditorPrefs.SetBool(AlphaPreferenceKey, !IncludeAlpha);
+        }
+
+        [MenuItem(AlphaMenuPath, true)]
+        private static bool ValidateIncludeAlpha()
+        {
+            Menu.SetChecked(AlphaMenuPath, IncludeAlpha);
+            return true;
+        }
 
         [MenuItem(MenuPath)]
         public static void Capture()
@@ -42,7 +59,7 @@ namespace YAMO.UnityTools.Editor
             try
             {
                 CaptureCamera(camera, size.x, size.y, outputPath);
-                Debug.Log($"[YAMO Screenshot] Saved: {outputPath}");
+                Debug.Log($"[YAMO Screenshot] Saved ({(IncludeAlpha ? "RGBA" : "Opaque RGB")}): {outputPath}");
             }
             catch (Exception ex)
             {
@@ -111,7 +128,10 @@ namespace YAMO.UnityTools.Editor
                     outputTexture.filterMode = FilterMode.Bilinear;
                 }
 
-                texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                // Opaque mode discards compositing alpha (including SSR). Alpha mode
+                // preserves the camera output for captures that need transparency.
+                texture = new Texture2D(width, height,
+                    IncludeAlpha ? TextureFormat.RGBA32 : TextureFormat.RGB24, false);
                 camera.targetTexture = renderTexture;
                 camera.Render();
 

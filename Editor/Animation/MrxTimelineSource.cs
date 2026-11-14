@@ -42,7 +42,7 @@ namespace YAMO.UnityTools.Editor
             var scene = EditorSceneManager.NewPreviewScene();
             try
             {
-                var root = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
+                var root = (GameObject)Object.Instantiate(prefab, scene);
                 var bones = root.GetComponentsInChildren<Transform>(true);
                 Transform[] Arm(string side) => new[] { "UArm", "FArm", "Hand" }
                     .Select(name => bones.Single(bone => bone.name == side + name)).ToArray();

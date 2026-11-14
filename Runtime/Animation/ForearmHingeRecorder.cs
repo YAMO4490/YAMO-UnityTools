@@ -24,7 +24,7 @@ namespace YAMO.UnityTools
         [HideInInspector] public int   sampleRate     = 30;
         [HideInInspector] public bool  enableHingeCorrection = true;
         [HideInInspector] public int   hingeAxisIndex = 2; // 0=X 1=Y 2=Z
-        [HideInInspector, Range(0f, 1f)] public float handRotationCompensation = 1f;
+        [HideInInspector, Range(0f, 1f)] public float handRotationCompensation = 0.5f;
 
         // 결과 파일 경로 (Edit·Play Mode 양쪽에서 동일하게 접근)
         public static string ResultsFilePath =>

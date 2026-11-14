@@ -10,6 +10,8 @@ namespace YAMO.UnityTools.Editor
     /// BipedConverter.Convert() 의 역 작업.
     /// Biped(3ds Max) 계층 구조를 Unity 정규 휴머노이드 본 계층으로 되돌립니다.
     /// </summary>
+    // Editor conversion tables are immutable after initialization.
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public static class BipedDeconverter
     {
         // ------------------------------------------------------------------
