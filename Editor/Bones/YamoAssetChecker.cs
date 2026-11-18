@@ -1099,6 +1099,48 @@ namespace YAMO.UnityTools.Editor
             if (_fbxMaterialReport.RendererCount > 0 && _fbxMaterialReport.Issues.Count == 0)
                 EditorGUILayout.HelpBox("머티리얼 슬롯의 사전 검사에서 문제를 찾지 못했습니다.", MessageType.Info);
 
+            var repeatedRenderers = new HashSet<Renderer>();
+            foreach (var issue in _fbxMaterialReport.Issues)
+            {
+                if (issue.Kind == FbxMaterialSlotChecker.IssueKind.RepeatedMaterial &&
+                    issue.Renderer != null && !EditorUtility.IsPersistent(issue.Renderer))
+                    repeatedRenderers.Add(issue.Renderer);
+            }
+            using (new EditorGUI.DisabledScope(repeatedRenderers.Count == 0))
+            {
+                if (GUILayout.Button($"전체 자동 해결: 중복 머티리얼 복제 ({repeatedRenderers.Count}개 Renderer)"))
+                {
+                    Undo.IncrementCurrentGroup();
+                    int undoGroup = Undo.GetCurrentGroup();
+                    Undo.SetCurrentGroupName("Fix all repeated material slots");
+                    int fixedSlots = 0;
+                    int failures = 0;
+                    try
+                    {
+                        foreach (var renderer in repeatedRenderers)
+                        {
+                            try
+                            {
+                                fixedSlots += FbxMaterialSlotChecker.FixRepeatedMaterials(renderer);
+                            }
+                            catch (System.Exception exception)
+                            {
+                                failures++;
+                                Debug.LogException(exception, renderer);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        Undo.CollapseUndoOperations(undoGroup);
+                        _fbxMaterialReport = FbxMaterialSlotChecker.Scan(_fbxMaterialRoot);
+                    }
+                    Debug.Log($"[YAMO] 전체 중복 머티리얼 해결: {fixedSlots}개 슬롯 복제, 실패 Renderer {failures}개. " +
+                        "슬롯 배정은 한 번의 Undo로 되돌릴 수 있으며 생성된 머티리얼 자산은 유지됩니다.");
+                    GUIUtility.ExitGUI();
+                }
+            }
+
             foreach (var issue in _fbxMaterialReport.Issues)
             {
                 EditorGUILayout.BeginVertical(EditorStyles.helpBox);
