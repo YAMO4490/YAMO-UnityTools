@@ -1,4 +1,4 @@
-// YamoAssetChecker — 아바타/씬 자산을 점검·정리하는 통합 EditorWindow.
+﻿// YamoAssetChecker — 아바타/씬 자산을 점검·정리하는 통합 EditorWindow.
 //
 // 하위 탭: 네이밍 도구 (1–2) / 검사도구 (1–5) / 부가 도구 (1–5).
 // 각 탭에서 번호를 1부터 시작하며, 각 섹션의 폴드아웃을 유지한다.
@@ -1067,7 +1067,7 @@ namespace YAMO.UnityTools.Editor
 
             EditorGUILayout.HelpBox(
                 "베이크할 아바타 루트의 Materials / SubMeshes 대응을 검사합니다 (비활성 자식 포함).\n" +
-                "슬롯 수 불일치, 빈 서브메시, 누락/반복 재질을 읽기 전용으로 검사하고 해결 방법을 표시합니다.",
+                "슬롯 수 불일치, 빈 서브메시, 누락/반복 재질을 검사합니다. 반복 재질은 자동 해결로 사본을 배정할 수 있습니다.",
                 MessageType.None);
             EditorGUI.BeginChangeCheck();
             _fbxMaterialRoot = (GameObject)EditorGUILayout.ObjectField(
@@ -1122,6 +1122,28 @@ namespace YAMO.UnityTools.Editor
                     $"Materials {issue.MaterialCount} / SubMeshes {issue.SubMeshCount}", EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox(issue.Reason, issue.BlocksBake ? MessageType.Error : MessageType.Warning);
                 EditorGUILayout.LabelField("해결: " + issue.Solution, EditorStyles.wordWrappedLabel);
+                if (issue.Kind == FbxMaterialSlotChecker.IssueKind.RepeatedMaterial)
+                {
+                    using (new EditorGUI.DisabledScope(issue.Renderer == null || EditorUtility.IsPersistent(issue.Renderer)))
+                    {
+                        if (GUILayout.Button("자동 해결: 중복 머티리얼 복제"))
+                        {
+                            try
+                            {
+                                int fixedSlots = FbxMaterialSlotChecker.FixRepeatedMaterials(issue.Renderer);
+                                Debug.Log($"[YAMO] 중복 머티리얼 {fixedSlots}개 복제 완료 (Assets/YAMO_MaterialSlotCopies). " +
+                                    "슬롯 배정은 Undo로 되돌릴 수 있으며 생성된 머티리얼 자산은 유지됩니다.");
+                            }
+                            catch (System.Exception exception)
+                            {
+                                Debug.LogException(exception);
+                            }
+                            _fbxMaterialReport = FbxMaterialSlotChecker.Scan(_fbxMaterialRoot);
+                            GUIUtility.ExitGUI();
+                        }
+                    }
+                    EditorGUILayout.LabelField("서브메시에 대응하는 중복 슬롯에만 사본을 배정합니다. 사본 위치: Assets/YAMO_MaterialSlotCopies", EditorStyles.wordWrappedLabel);
+                }
                 EditorGUILayout.EndVertical();
             }
         }

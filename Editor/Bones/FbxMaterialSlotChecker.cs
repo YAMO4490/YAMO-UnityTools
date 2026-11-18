@@ -1,10 +1,10 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
 namespace YAMO.UnityTools.Editor
 {
-    /// <summary>Read-only FBX material-slot preflight, shared by Asset Checker and Avatar Bake.</summary>
+    /// <summary>FBX material-slot preflight, shared by Asset Checker and Avatar Bake.</summary>
     public static class FbxMaterialSlotChecker
     {
         public enum IssueKind { SlotCountMismatch, MissingMesh, EmptySubMesh, NullMaterial, RepeatedMaterial }
@@ -94,6 +94,53 @@ namespace YAMO.UnityTools.Editor
                 }
             }
             return report;
+        }
+
+        /// <summary>Creates persistent copies for repeated slots backed by distinct submeshes.</summary>
+        public static int FixRepeatedMaterials(Renderer renderer)
+        {
+            if (renderer == null || EditorUtility.IsPersistent(renderer)) return 0;
+            var mesh = GetMesh(renderer);
+            if (mesh == null) return 0;
+            var materials = renderer.sharedMaterials;
+            var seen = new HashSet<Material>();
+            var createdPaths = new List<string>();
+            int count = 0;
+            try
+            {
+                for (int i = 0; i < Mathf.Min(materials.Length, mesh.subMeshCount); i++)
+                {
+                    var source = materials[i];
+                    if (source == null || seen.Add(source)) continue;
+                    const string folder = "Assets/YAMO_MaterialSlotCopies";
+                    if (!AssetDatabase.IsValidFolder(folder))
+                        AssetDatabase.CreateFolder("Assets", "YAMO_MaterialSlotCopies");
+                    string name = source.name + "_Slot" + i;
+                    foreach (char c in System.IO.Path.GetInvalidFileNameChars())
+                        name = name.Replace(c, '_');
+                    name = name.Replace('/', '_').Replace('\\', '_');
+                    string path = AssetDatabase.GenerateUniqueAssetPath(folder + "/" + name + ".mat");
+                    var copy = new Material(source) { name = System.IO.Path.GetFileNameWithoutExtension(path) };
+                    AssetDatabase.CreateAsset(copy, path);
+                    createdPaths.Add(path);
+                    materials[i] = copy;
+                    count++;
+                }
+                if (count == 0) return 0;
+                AssetDatabase.SaveAssets();
+                Undo.RecordObject(renderer, "Fix repeated material slots");
+                renderer.sharedMaterials = materials;
+                PrefabUtility.RecordPrefabInstancePropertyModifications(renderer);
+                EditorUtility.SetDirty(renderer);
+                if (renderer.gameObject.scene.IsValid())
+                    UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(renderer.gameObject.scene);
+                return count;
+            }
+            catch
+            {
+                foreach (string path in createdPaths) AssetDatabase.DeleteAsset(path);
+                throw;
+            }
         }
 
         public static Mesh GetMesh(Renderer renderer)
