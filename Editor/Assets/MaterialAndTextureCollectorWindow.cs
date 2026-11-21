@@ -97,7 +97,7 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     };
 
     private string texResizePath = "Assets";
-    private int texJpgQuality = 85;
+    private const int texJpgQuality = 100;
     private List<TexEntry> texResizeEntries = new List<TexEntry>();
     private List<string> texResizeLog = new List<string>();
     private bool texResizeScanned = false;
@@ -108,6 +108,9 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     private Vector2 scroll;
     private bool sec1Foldout = true;
     private bool sec2Foldout = true;
+    private bool texturePipelineFoldout = true;
+    private bool textureAdvancedFoldout;
+    private string texturePipelineResult = "";
     private bool sec3Foldout = true;
     private bool sec4Foldout = true;
     private bool sec5Foldout = true;
@@ -223,6 +226,26 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         }
         // ▲▲▲ 섹션 1 ▲▲▲
 
+        texturePipelineFoldout = DrawFoldoutSectionHeader(texturePipelineFoldout, "텍스처 일괄 처리 (PSD → PNG / 2048 / 임포트 설정)");
+        if (texturePipelineFoldout)
+        {
+            textureSettingsPath = DrawSearchFolderField(textureSettingsPath);
+            EditorGUILayout.HelpBox(
+                "선택 폴더와 하위 폴더를 한 번에 처리합니다.\n" +
+                "1. PSD → PNG 변환 (GUID 참조 보존)\n" +
+                "2. 2048 초과 텍스처 축소 (비율 유지 / JPG 품질 100)\n" +
+                "3. Mip Maps OFF / Max Size 2048 / Compression None\n" +
+                "원본 PSD는 PNG로 대체되며, 리사이즈 대상 원본 파일은 덮어씁니다.", MessageType.Warning);
+            using (new EditorGUI.DisabledScope(!IsValidSearchFolder(textureSettingsPath)))
+            {
+                if (GUILayout.Button("전체 적용 (PSD → PNG → 2048 리사이즈 → 임포트 설정)"))
+                    RunTexturePipeline();
+            }
+            if (!string.IsNullOrEmpty(texturePipelineResult))
+                EditorGUILayout.HelpBox(texturePipelineResult, MessageType.Info);
+            textureAdvancedFoldout = EditorGUILayout.Foldout(textureAdvancedFoldout, "개별 실행 / 상세 결과", true);
+            if (textureAdvancedFoldout)
+            {
         // ▼▼▼ 섹션 2: PSD → PNG 변환 ▼▼▼
         sec2Foldout = DrawFoldoutSectionHeader(sec2Foldout, "🖼️  PSD → PNG 변환 (GUID 참조 보존)");
         if (sec2Foldout)
@@ -359,7 +382,7 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
                 texResizeLog.Clear();
             }
 
-            texJpgQuality = EditorGUILayout.IntSlider("JPG 재인코딩 품질", texJpgQuality, 1, 100);
+            EditorGUILayout.LabelField("JPG 재인코딩 품질", "100 (고정)");
 
             EditorGUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(!IsValidSearchFolder(texResizePath)))
@@ -467,6 +490,9 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
                 EditorGUILayout.HelpBox(textureSettingsResult, MessageType.Info);
         }
 
+            }
+        }
+
         // ▼▼▼ 섹션 5: Convert NiloToon ▼▼▼
         // NiloToon 미설치 또는 MinimumNiloToonVersion 미만이면 섹션 자체를 그리지 않는다
         if (NiloToonConvertCore.IsSupported)
@@ -482,6 +508,39 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     // =====================================================
     // 섹션 4: 텍스처 임포트 설정
     // =====================================================
+    private void RunTexturePipeline()
+    {
+        if (!IsValidSearchFolder(textureSettingsPath)) return;
+        texturePipelineResult = "";
+        psdSearchPath = texResizePath = textureSettingsPath;
+        bool previousPsdResize = psdResizeOver2048;
+        try
+        {
+            psdResizeOver2048 = true;
+            ScanPSDFiles();
+            if (psdFoundEntries.Count > 0) ConvertAllPSDtoPNG();
+            ScanLargeTextures();
+            if (texResizeEntries.Count > 0) ResizeAllTextures();
+            ApplyTextureImportSettings();
+            var result = new StringBuilder();
+            foreach (var line in psdResultLog) if (!string.IsNullOrEmpty(line)) result.AppendLine(line);
+            foreach (var line in texResizeLog) if (!string.IsNullOrEmpty(line)) result.AppendLine(line);
+            result.Append(textureSettingsResult);
+            texturePipelineResult = result.ToString();
+        }
+        catch (System.Exception ex)
+        {
+            texturePipelineResult = "일괄 처리 중단: " + ex.Message + "\n개별 실행 / 상세 결과와 콘솔을 확인하세요.";
+            Debug.LogException(ex);
+        }
+        finally
+        {
+            psdResizeOver2048 = previousPsdResize;
+            EditorUtility.ClearProgressBar();
+            Repaint();
+        }
+    }
+
     private void ApplyTextureImportSettings()
     {
         if (!IsValidSearchFolder(textureSettingsPath)) return;
