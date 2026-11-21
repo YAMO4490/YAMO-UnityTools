@@ -118,6 +118,22 @@ namespace YAMO.UnityTools.Editor
             }
         }
 
+        private static void CaptureOutputScreenshot(AvatarBakeOptions opt, IMigrationLog log)
+        {
+            // Capture before snapshots and activation/BlendShape changes alter the visible avatar.
+            string screenshotPath = Path.ChangeExtension(opt.FbxProjectPath, ".png");
+            try
+            {
+                MainCameraScreenshotCapture.CaptureToPath(screenshotPath);
+                AssetDatabase.ImportAsset(screenshotPath, ImportAssetOptions.ForceUpdate);
+                log.Info("Screenshot saved: " + screenshotPath);
+            }
+            catch (System.Exception ex)
+            {
+                log.Warning("Screenshot could not be saved: " + screenshotPath + " — " + ex.Message);
+            }
+        }
+
         private static bool RunInternal(AvatarBakeOptions opt, IMigrationLog log)
         {
             // ---------------- 입력 검증 ----------------
@@ -162,6 +178,8 @@ namespace YAMO.UnityTools.Editor
                 {
                     LogSmrInventory("[DIAG @0 source]", opt.Source, log);
                 }
+
+                CaptureOutputScreenshot(opt, log);
 
                 // ---------------- 1) Snapshot ----------------
                 EditorUtility.DisplayProgressBar(PB_TITLE, "Creating snapshot...", 0.05f);
