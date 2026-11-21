@@ -1,4 +1,4 @@
-// Convert NiloToon — Material And Texture Tool 의 섹션 4 가 호출하는 정적 코어.
+// Convert NiloToon — Material And Texture Tool 의 섹션 5 가 호출하는 정적 코어.
 //
 // 절차:
 //   1) 아바타가 참조하는 머티리얼을 Assets/MaterialsBackup/<아바타>_<시각>/ 에 그대로 백업 (복구용)

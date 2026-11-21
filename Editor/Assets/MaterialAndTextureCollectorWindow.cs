@@ -110,9 +110,12 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     private bool sec2Foldout = true;
     private bool sec3Foldout = true;
     private bool sec4Foldout = true;
+    private bool sec5Foldout = true;
+    private string textureSettingsPath = "Assets";
+    private string textureSettingsResult = "";
 
     // =====================================================
-    // 섹션 4: Convert NiloToon
+    // 섹션 5: Convert NiloToon
     // =====================================================
     private List<string> niloConvertLog = new List<string>();
     private bool niloBakeLilColor = true;    // 변환 전 lilToon 메인 컬러를 텍스처에 굽기
@@ -449,21 +452,94 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         }
         // ▲▲▲ 섹션 3 ▲▲▲
 
-        // ▼▼▼ 섹션 4: Convert NiloToon ▼▼▼
+        // 섹션 4: 텍스처 임포트 설정
+        sec4Foldout = DrawFoldoutSectionHeader(sec4Foldout, "텍스처 임포트 설정 일괄 적용");
+        if (sec4Foldout)
+        {
+            textureSettingsPath = DrawSearchFolderField(textureSettingsPath);
+            EditorGUILayout.HelpBox("선택한 폴더와 하위 폴더의 모든 텍스처에 적용합니다.\nGenerate Mip Maps: OFF / Max Size: 2048 / Compression: None\n원본 이미지 파일은 변경하지 않습니다. 플랫폼별 오버라이드가 있으면 같은 설정을 적용합니다.", MessageType.Info);
+            using (new EditorGUI.DisabledScope(!IsValidSearchFolder(textureSettingsPath)))
+            {
+                if (GUILayout.Button("텍스처 설정 일괄 적용 (Mip Maps OFF / 2048 / None)"))
+                    ApplyTextureImportSettings();
+            }
+            if (!string.IsNullOrEmpty(textureSettingsResult))
+                EditorGUILayout.HelpBox(textureSettingsResult, MessageType.Info);
+        }
+
+        // ▼▼▼ 섹션 5: Convert NiloToon ▼▼▼
         // NiloToon 미설치 또는 MinimumNiloToonVersion 미만이면 섹션 자체를 그리지 않는다
         if (NiloToonConvertCore.IsSupported)
         {
-            sec4Foldout = DrawFoldoutSectionHeader(sec4Foldout, "🎨  Convert NiloToon");
-            if (sec4Foldout) DrawConvertNiloToonSection();
+            sec5Foldout = DrawFoldoutSectionHeader(sec5Foldout, "🎨  Convert NiloToon");
+            if (sec5Foldout) DrawConvertNiloToonSection();
         }
-        // ▲▲▲ 섹션 4 ▲▲▲
+        // ▲▲▲ 섹션 5 ▲▲▲
 
         EditorGUILayout.EndScrollView();
     }
 
     // =====================================================
-    // 섹션 4: Convert NiloToon (로직은 NiloToonConvertCore)
+    // 섹션 4: 텍스처 임포트 설정
     // =====================================================
+    private void ApplyTextureImportSettings()
+    {
+        if (!IsValidSearchFolder(textureSettingsPath)) return;
+        string[] guids = AssetDatabase.FindAssets("t:Texture", new[] { textureSettingsPath });
+        var paths = new HashSet<string>();
+        foreach (string guid in guids)
+        {
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            if (AssetImporter.GetAtPath(path) is TextureImporter) paths.Add(path);
+        }
+        int changed = 0, unchanged = 0, failed = 0;
+        try
+        {
+            int index = 0;
+            foreach (string path in paths)
+            {
+                EditorUtility.DisplayProgressBar("텍스처 설정 적용", path, (float)index++ / paths.Count);
+                try
+                {
+                    var importer = (TextureImporter)AssetImporter.GetAtPath(path);
+                    bool dirty = importer.mipmapEnabled || importer.maxTextureSize != 2048
+                        || importer.textureCompression != TextureImporterCompression.Uncompressed
+                        || importer.crunchedCompression;
+                    importer.mipmapEnabled = false;
+                    importer.maxTextureSize = 2048;
+                    importer.textureCompression = TextureImporterCompression.Uncompressed;
+                    importer.crunchedCompression = false;
+                    // Existing overrides must not keep compression or a different size active.
+                    foreach (var platformName in new[] { "Standalone", "iPhone", "Android", "WebGL", "Windows Store Apps", "PS4", "PS5", "XboxOne", "Nintendo Switch", "tvOS" })
+                    {
+                        var platform = importer.GetPlatformTextureSettings(platformName);
+                        if (!platform.overridden) continue;
+                        if (platform.maxTextureSize == 2048
+                            && platform.textureCompression == TextureImporterCompression.Uncompressed
+                            && platform.format == TextureImporterFormat.Automatic
+                            && !platform.crunchedCompression) continue;
+                        platform.maxTextureSize = 2048;
+                        platform.textureCompression = TextureImporterCompression.Uncompressed;
+                        platform.format = TextureImporterFormat.Automatic;
+                        platform.crunchedCompression = false;
+                        importer.SetPlatformTextureSettings(platform);
+                        dirty = true;
+                    }
+                    if (dirty) { importer.SaveAndReimport(); changed++; }
+                    else unchanged++;
+                }
+                catch (System.Exception ex)
+                {
+                    failed++;
+                    Debug.LogError($"[텍스처 설정] {path}: {ex.Message}");
+                }
+            }
+        }
+        finally { EditorUtility.ClearProgressBar(); }
+        textureSettingsResult = $"완료: 변경 {changed}개 / 이미 적용 {unchanged}개 / 실패 {failed}개";
+        Debug.Log($"[텍스처 설정] {textureSettingsPath}: {textureSettingsResult}");
+    }
+
     void DrawConvertNiloToonSection()
     {
         EditorGUILayout.HelpBox(
