@@ -36,12 +36,11 @@ namespace YAMO.UnityTools.Editor
                 return;
             }
 
-            Vector2Int size = ResolveGameViewSize(camera);
             string outputPath = BuildOutputPath(camera);
 
             try
             {
-                CaptureCamera(camera, size.x, size.y, outputPath);
+                CaptureToPath(outputPath);
                 Debug.Log($"[YAMO Screenshot] Saved: {outputPath}");
             }
             catch (Exception ex)
@@ -52,6 +51,20 @@ namespace YAMO.UnityTools.Editor
                     "스크린샷 저장 중 오류가 발생했습니다. Console 로그를 확인해주세요.",
                     "확인");
             }
+        }
+
+        /// <summary>Use the shortcut capture renderer with an explicit PNG destination.</summary>
+        public static void CaptureToPath(string outputPath)
+        {
+            if (string.IsNullOrEmpty(outputPath))
+                throw new ArgumentException("Screenshot output path is empty.", nameof(outputPath));
+            if (!Path.IsPathRooted(outputPath))
+                outputPath = Path.Combine(Directory.GetParent(Application.dataPath).FullName, outputPath);
+            var camera = Camera.main;
+            if (camera == null)
+                throw new InvalidOperationException("MainCamera 태그가 지정된 카메라를 찾을 수 없습니다.");
+            Vector2Int size = ResolveGameViewSize(camera);
+            CaptureCamera(camera, size.x, size.y, outputPath);
         }
 
         [Shortcut(ShortcutId)]

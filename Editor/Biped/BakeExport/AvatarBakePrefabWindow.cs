@@ -180,6 +180,9 @@ namespace YAMO.UnityTools.Editor
                     "instance ID)를 로그로 출력. 메시 매핑 꼬임 디버깅용."),
                 _verboseDiagnostics);
 
+            if (!scaleBake)
+                EditorGUILayout.HelpBox("실행 전 현재 화면을 촬영하여 FBX와 같은 폴더와 이름의 PNG로 저장합니다.", MessageType.Info);
+
             // ---- 실행 ----
             EditorGUILayout.Space();
             using (new EditorGUI.DisabledScope(!CanRun()))
