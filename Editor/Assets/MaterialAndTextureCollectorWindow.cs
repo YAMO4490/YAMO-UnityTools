@@ -968,8 +968,9 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         string projectRoot = Directory.GetParent(Application.dataPath).FullName;
         string fullPath = Path.Combine(projectRoot, assetPath.Replace('/', Path.DirectorySeparatorChar));
 
-        // 섹션 1을 돌린 적이 없으면(맵 파일도 없고 캐시도 비었으면) 아무것도 만들지 않는다.
-        if (!File.Exists(fullPath) && maxMainTextureGuids.Count == 0) return;
+        // 갱신은 현재 출력 경로에 이미 존재하는 맵만 대상으로 한다.
+        // 다른 폴더에서 수집한 캐시가 남아 있어도 삭제/이동된 출력 폴더를 다시 만들지 않는다.
+        if (!File.Exists(fullPath)) return;
 
         // 창을 다시 연 뒤 섹션 2/3만 돌린 경우 등 캐시가 비었으면 복사본 머티리얼에서 복원.
         if (maxMainTextureGuids.Count == 0) RebuildMaxMainTextureGuidsFromCopiedMaterials();
