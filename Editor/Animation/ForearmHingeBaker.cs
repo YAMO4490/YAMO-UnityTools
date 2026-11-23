@@ -123,7 +123,7 @@ namespace YAMO.UnityTools.Editor
         void OnGUI()
         {
             EditorGUILayout.Space(4);
-            animator   = EditorGUILayout.ObjectField("Animator (씬)", animator,   typeof(Animator),      true)  as Animator;
+            animator   = YamoSelectionTargetGUI.Draw("Animator (씬)", animator,   typeof(Animator),      true)  as Animator;
             sourceClip = EditorGUILayout.ObjectField("소스 클립",     sourceClip, typeof(AnimationClip), false) as AnimationClip;
 
             EditorGUILayout.Space(4);

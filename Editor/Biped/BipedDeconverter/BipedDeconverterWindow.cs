@@ -34,7 +34,7 @@ namespace YAMO.UnityTools.Editor
             EditorGUILayout.LabelField("Armature 루트 (Bip001 포함)", EditorStyles.boldLabel);
 
             EditorGUI.BeginChangeCheck();
-            _source = (GameObject)EditorGUILayout.ObjectField(
+            _source = (GameObject)YamoSelectionTargetGUI.Draw(
                 new GUIContent("Armature Root"), _source, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck())
                 _resultText = "";

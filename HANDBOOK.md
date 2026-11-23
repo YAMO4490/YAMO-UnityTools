@@ -580,3 +580,7 @@ namespace YAMO.UnityTools.Editor
 4. Play Mode를 종료하고 Project 창에서 프리팹을 씬으로 드래그한다. Transform과 Skinned Mesh Renderer의 BlendShapes를 직접 조정할 수 있다.
 
 씬에 있던 프리팹은 플레이 진입 전에 원본 경로를 기록해 Variant로 저장한다. 런타임에 생성되어 Unity가 원본 연결을 제공하지 않는 오브젝트는 일반 프리팹으로 저장된다. 사본은 Animator, Animation, Timeline, 제약, MonoBehaviour와 Cloth의 구동을 끄고 Rigidbody를 Kinematic으로 바꾼 상태로 저장한다. 아바타 내부와 프로젝트 에셋 참조를 보존하며, 씬 밖으로 함께 가져갈 수 없는 참조는 비우고 건수를 표시한다. 본과 표정 가중치를 저장하는 기능으로, GPU 변형이나 Cloth의 정점별 시뮬레이션 결과는 베이크하지 않는다.
+
+## 0.10.4: 현재 선택 대상
+
+Hub 및 단독 도구의 작업 대상은 실행 시점의 Hierarchy/Project 선택을 따릅니다. 입력 드래그 대신 현재 대상 이름을 읽기 전용으로 표시합니다. 선택 해제 또는 타입 불일치 시 이전 대상에 실행하지 않습니다. 검사 결과는 선택 변경 시 무효화하며 Bake 출력 경로도 새 대상으로 재설정합니다. 출력 폴더/템플릿/참조 클립 등 보조 입력은 유지합니다. Facial Optimizer는 선택한 AnimationClip들, Clip Reducer/Remapper는 선택한 AnimationClip을 사용합니다.

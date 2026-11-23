@@ -74,8 +74,13 @@ namespace YAMO.UnityTools.Editor
         // GUI
         // ---------------------------------------------------------------------
 
+        private readonly List<AnimationClip> selectionSnapshot = new List<AnimationClip>();
+
         private void OnGUI()
         {
+            var current=Selection.objects.OfType<AnimationClip>().ToList();
+            if(!selectionSnapshot.SequenceEqual(current)){selectionSnapshot.Clear();selectionSnapshot.AddRange(current);clips.Clear();clips.AddRange(current);}
+
             EditorGUILayout.LabelField("Facial Animation Optimizer", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 ".anim 페이셜 클립의 커브를 최적화해 용량을 줄입니다.\n" +
@@ -93,12 +98,6 @@ namespace YAMO.UnityTools.Editor
                     DrawClipEntry(i);
                     EditorGUILayout.Space(2);
                 }
-            }
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("+ Add Slot")) clips.Add(null);
-                if (GUILayout.Button("Add Selected .anim")) AddSelectedClips();
-                if (GUILayout.Button("Clear")) { clips.Clear(); selections.Clear(); }
             }
 
             EditorGUILayout.Space(4);
@@ -201,7 +200,7 @@ namespace YAMO.UnityTools.Editor
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     var prev = clips[i];
-                    clips[i] = (AnimationClip)EditorGUILayout.ObjectField(clips[i], typeof(AnimationClip), false);
+                    EditorGUILayout.LabelField(clips[i] ? clips[i].name : "선택 없음");
                     if (prev != clips[i] && prev != null) selections.Remove(prev);
 
                     if (GUILayout.Button("×", GUILayout.Width(24)))

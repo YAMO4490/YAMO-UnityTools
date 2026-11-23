@@ -76,6 +76,7 @@ namespace YAMO.UnityTools.Editor
         /// </summary>
         public void DrawGUI(bool scaleBake = false)
         {
+            if (_source != Selection.activeGameObject) { _fbxProjectPath = ""; _prefabProjectPath = ""; }
             _scaleBake = scaleBake;
             _windowScroll = EditorGUILayout.BeginScrollView(_windowScroll);
 
@@ -94,9 +95,7 @@ namespace YAMO.UnityTools.Editor
 
             // ---- 입력 ----
             EditorGUILayout.Space();
-            _source = (GameObject)EditorGUILayout.ObjectField("Avatar Root", _source, typeof(GameObject), true);
-            if (scaleBake && GUILayout.Button("Use Selected Avatar"))
-                _source = Selection.activeGameObject;
+            _source = (GameObject)YamoSelectionTargetGUI.Draw("Avatar Root", _source, typeof(GameObject), true);
 
             // 경로가 비어 있고 source 가 지정되면 기본값 자동 채우기.
             // 사용자가 직접 입력한 값은 보존; 비우면 다시 기본값으로 회복.

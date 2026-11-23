@@ -193,7 +193,7 @@ namespace YAMO.UnityTools.Editor
         private void DrawTarget()
         {
             EditorGUILayout.LabelField("1. 대상 Biped", EditorStyles.boldLabel);
-            targetAnimator = (Animator)EditorGUILayout.ObjectField(
+            targetAnimator = (Animator)YamoSelectionTargetGUI.Draw(
                 "Biped Animator",
                 targetAnimator,
                 typeof(Animator),

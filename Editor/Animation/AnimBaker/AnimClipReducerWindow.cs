@@ -129,12 +129,16 @@ namespace YAMO.UnityTools.Editor
 
         // ────────────────────────────── Sections
 
+        private void OnSelectionChange(){if(_clipField!=null)_clipField.value=Selection.activeObject as AnimationClip; Repaint();}
+
         private void BuildInputSection(VisualElement parent)
         {
             var box = MakeSection("입력");
 
             _clipField = new ObjectField("소스 클립") { objectType = typeof(AnimationClip), allowSceneObjects = false };
             _clipField.RegisterValueChangedCallback(_ => SuggestOutputPath());
+            _clipField.SetEnabled(false);
+            _clipField.SetValueWithoutNotify(Selection.activeObject as AnimationClip);
             box.Add(_clipField);
 
             _outputPathField = new TextField("저장 경로");
@@ -151,6 +155,7 @@ namespace YAMO.UnityTools.Editor
             box.Add(pathRow);
 
             parent.Add(box);
+            SuggestOutputPath();
         }
 
         private void BuildQualitySection(VisualElement parent)

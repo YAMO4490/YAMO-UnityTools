@@ -122,7 +122,7 @@ namespace YAMO.UnityTools.Editor
 
             // ── Source ──
             EditorGUI.BeginChangeCheck();
-            _sourceObject = EditorGUILayout.ObjectField(
+            _sourceObject = YamoSelectionTargetGUI.Draw(
                 "소스 아바타", _sourceObject, typeof(GameObject), true) as GameObject;
             if (EditorGUI.EndChangeCheck())
                 _dirty = true;

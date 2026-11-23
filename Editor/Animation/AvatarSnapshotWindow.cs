@@ -38,10 +38,8 @@ namespace YAMO.UnityTools.Editor
 
             using (new EditorGUILayout.HorizontalScope())
             {
-                target = (GameObject)EditorGUILayout.ObjectField("아바타", target, typeof(GameObject), true);
-                using (new EditorGUI.DisabledScope(!IsSceneObject(Selection.activeGameObject)))
-                    if (GUILayout.Button("선택 사용", GUILayout.Width(76)))
-                        target = Selection.activeGameObject;
+                target = (GameObject)YamoSelectionTargetGUI.Draw("아바타", target, typeof(GameObject), true);
+
             }
 
             var root = ResolveRoot(target);

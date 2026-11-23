@@ -150,6 +150,8 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     /// </summary>
     public void DrawGUI()
     {
+        if(targetPrefab != Selection.activeGameObject){duplicateMaterialMap.Clear();duplicateTextureMap.Clear();collectedMaterials.Clear();collectedTextures.Clear();materialCopies.Clear();textureCopies.Clear();}
+
         GUILayout.Label("\uD83C\uDF1F 머테리얼 & 텍스처 유틸리티", EditorStyles.boldLabel);
 
         scroll = EditorGUILayout.BeginScrollView(scroll);
@@ -158,7 +160,7 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         sec1Foldout = DrawFoldoutSectionHeader(sec1Foldout, "📦  머테리얼 / 텍스처 관리");
         if (sec1Foldout)
         {
-            targetPrefab = (GameObject)EditorGUILayout.ObjectField("\uD83D\uDCE6 타겟 프리팹", targetPrefab, typeof(GameObject), true);
+            targetPrefab = (GameObject)YamoSelectionTargetGUI.Draw("\uD83D\uDCE6 타겟 프리팹", targetPrefab, typeof(GameObject), true);
             EditorGUILayout.BeginHorizontal();
             materialOutputPath = EditorGUILayout.TextField("\uD83D\uDCC2 머테리얼 저장 경로", materialOutputPath);
             if (GUILayout.Button("선택", GUILayout.Width(60)))
@@ -612,7 +614,7 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
             MessageType.Info);
 
         // 섹션 1 의 타겟을 그대로 사용
-        targetPrefab = (GameObject)EditorGUILayout.ObjectField("📦 타겟 (씬 오브젝트)", targetPrefab, typeof(GameObject), true);
+        targetPrefab = (GameObject)YamoSelectionTargetGUI.Draw("📦 타겟 (씬 오브젝트)", targetPrefab, typeof(GameObject), true);
 
         GUILayout.Label($"NiloToon {NiloToonConvertCore.InstalledNiloToonVersion}  (요구: {NiloToonConvertCore.MinimumNiloToonVersion} 이상)", EditorStyles.miniLabel);
 

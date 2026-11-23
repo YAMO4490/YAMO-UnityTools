@@ -1,4 +1,4 @@
-﻿// YamoAssetChecker — 아바타/씬 자산을 점검·정리하는 통합 EditorWindow.
+// YamoAssetChecker — 아바타/씬 자산을 점검·정리하는 통합 EditorWindow.
 //
 // 하위 탭: 네이밍 도구 (1–2) / 검사도구 (1–5) / 부가 도구 (1–5).
 // 각 탭에서 번호를 1부터 시작하며, 각 섹션의 폴드아웃을 유지한다.
@@ -145,8 +145,23 @@ namespace YAMO.UnityTools.Editor
         /// <summary>
         /// 외부(예: Tool Hub) 에서 호출해 임베드할 수 있는 GUI 본체.
         /// </summary>
+        private GameObject _selectionContext;
+        private void ResetSelectionContext(){
+            if(_selectionContext==Selection.activeGameObject)return;
+            _selectionContext=Selection.activeGameObject;
+            _duplicateGroups.Clear(); _duplicateSearched=false;
+            _invalidScaleBones.Clear(); _invalidScaleSearched=false;
+            _missingBoneResults.Clear(); _missingBoneSearched=false;
+            _inactiveObjects.Clear(); _inactiveSearched=false;
+            _emptyCleanerResult=null; _emptyCleanerScanned=false; _stage2Selected.Clear();
+            _magicaSymmetryEntries.Clear(); _magicaSymmetryScanned=false;
+            _bonelessSmrEntries.Clear(); _bonelessSmrScanned=false;
+            _fbxMaterialReport=null;
+            _magicaSplitterReport=null;
+        }
         public void DrawGUI()
         {
+            ResetSelectionContext();
             EditorGUILayout.LabelField("YAMO Asset Checker", EditorStyles.boldLabel);
             int newIndex = GUILayout.Toolbar(
                 (int)_activeCategory, CategoryLabels, GUILayout.Height(26));
@@ -284,7 +299,7 @@ namespace YAMO.UnityTools.Editor
             if (!_foldDuplicates) return;
 
             EditorGUI.indentLevel++;
-            _duplicateRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _duplicateRoot, typeof(GameObject), true);
+            _duplicateRoot = (GameObject)YamoSelectionTargetGUI.Draw("Target Root", _duplicateRoot, typeof(GameObject), true);
 
             EditorGUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(_duplicateRoot == null))
@@ -394,7 +409,7 @@ namespace YAMO.UnityTools.Editor
             if (!_foldMissingScripts) return;
 
             EditorGUI.indentLevel++;
-            _scriptTargetObject = (GameObject)EditorGUILayout.ObjectField("Target", _scriptTargetObject, typeof(GameObject), true);
+            _scriptTargetObject = (GameObject)YamoSelectionTargetGUI.Draw("Target", _scriptTargetObject, typeof(GameObject), true);
 
             using (new EditorGUI.DisabledScope(_scriptTargetObject == null))
             {
@@ -548,7 +563,7 @@ namespace YAMO.UnityTools.Editor
                 "실행 시 원본은 유지되고 사본을 생성해 해당 사본에서 작업합니다.",
                 MessageType.None);
 
-            _emptyCleanerRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _emptyCleanerRoot, typeof(GameObject), true);
+            _emptyCleanerRoot = (GameObject)YamoSelectionTargetGUI.Draw("Target Root", _emptyCleanerRoot, typeof(GameObject), true);
 
             using (new EditorGUI.DisabledScope(_emptyCleanerRoot == null))
             {
@@ -758,7 +773,7 @@ namespace YAMO.UnityTools.Editor
                 "비활성 부모의 자식도 모두 포함됩니다.",
                 MessageType.None);
 
-            _inactiveFinderRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _inactiveFinderRoot, typeof(GameObject), true);
+            _inactiveFinderRoot = (GameObject)YamoSelectionTargetGUI.Draw("Target Root", _inactiveFinderRoot, typeof(GameObject), true);
 
             using (new EditorGUI.DisabledScope(_inactiveFinderRoot == null))
             {
@@ -830,7 +845,7 @@ namespace YAMO.UnityTools.Editor
                 "첫 컴포넌트는 남기고 나머지는 같은 부모 아래에 생성합니다. 설정·본·콜라이더 참조와 활성 상태를 유지하며, Undo로 되돌릴 수 있습니다.",
                 MessageType.None);
             EditorGUI.BeginChangeCheck();
-            _magicaSplitterRoot = (GameObject)EditorGUILayout.ObjectField(
+            _magicaSplitterRoot = (GameObject)YamoSelectionTargetGUI.Draw(
                 "대상 아바타", _magicaSplitterRoot, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck())
             {
@@ -899,7 +914,7 @@ namespace YAMO.UnityTools.Editor
                 "X_Symmetry + 반대편 Primary 본(예: LeftHand → RightHand)으로 설정합니다. Biped 본은 타겟으로 쓰지 않습니다.",
                 MessageType.None);
 
-            _magicaSymmetryRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _magicaSymmetryRoot, typeof(GameObject), true);
+            _magicaSymmetryRoot = (GameObject)YamoSelectionTargetGUI.Draw("Target Root", _magicaSymmetryRoot, typeof(GameObject), true);
 
             using (new EditorGUI.DisabledScope(_magicaSymmetryRoot == null))
             {
@@ -1070,17 +1085,10 @@ namespace YAMO.UnityTools.Editor
                 "슬롯 수 불일치, 빈 서브메시, 누락/반복 재질을 검사합니다. 반복 재질은 자동 해결로 사본을 배정할 수 있습니다.",
                 MessageType.None);
             EditorGUI.BeginChangeCheck();
-            _fbxMaterialRoot = (GameObject)EditorGUILayout.ObjectField(
+            _fbxMaterialRoot = (GameObject)YamoSelectionTargetGUI.Draw(
                 "Target Root", _fbxMaterialRoot, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck()) _fbxMaterialReport = null;
-            using (new EditorGUI.DisabledScope(Selection.activeGameObject == null))
-            {
-                if (GUILayout.Button("선택 오브젝트를 Target Root로"))
-                {
-                    _fbxMaterialRoot = Selection.activeGameObject;
-                    _fbxMaterialReport = null;
-                }
-            }
+
             using (new EditorGUI.DisabledScope(_fbxMaterialRoot == null))
             {
                 if (GUILayout.Button("Scan Material Slots"))
