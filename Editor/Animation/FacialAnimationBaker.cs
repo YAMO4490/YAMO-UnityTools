@@ -74,12 +74,13 @@ namespace YAMO.UnityTools.Editor
         // GUI
         // ---------------------------------------------------------------------
 
+        private bool selectionSnapshotInitialized;
         private readonly List<AnimationClip> selectionSnapshot = new List<AnimationClip>();
 
         private void OnGUI()
         {
             var current=Selection.objects.OfType<AnimationClip>().ToList();
-            if(!selectionSnapshot.SequenceEqual(current)){selectionSnapshot.Clear();selectionSnapshot.AddRange(current);clips.Clear();clips.AddRange(current);}
+            if(!selectionSnapshotInitialized || !selectionSnapshot.SequenceEqual(current)){selectionSnapshotInitialized=true;selectionSnapshot.Clear();selectionSnapshot.AddRange(current);clips.Clear();clips.AddRange(current);}
 
             EditorGUILayout.LabelField("Facial Animation Optimizer", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(

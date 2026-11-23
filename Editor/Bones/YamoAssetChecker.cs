@@ -146,8 +146,10 @@ namespace YAMO.UnityTools.Editor
         /// 외부(예: Tool Hub) 에서 호출해 임베드할 수 있는 GUI 본체.
         /// </summary>
         private GameObject _selectionContext;
+        private bool _selectionContextInitialized;
         private void ResetSelectionContext(){
-            if(_selectionContext==Selection.activeGameObject)return;
+            if(_selectionContextInitialized && _selectionContext==Selection.activeGameObject)return;
+            _selectionContextInitialized=true;
             _selectionContext=Selection.activeGameObject;
             _duplicateGroups.Clear(); _duplicateSearched=false;
             _invalidScaleBones.Clear(); _invalidScaleSearched=false;
