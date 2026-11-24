@@ -74,6 +74,41 @@ namespace YAMO.UnityTools.Editor.Tests
             }
         }
 
+        [TestCase("HQ:")]
+        [TestCase("BS:")]
+        [TestCase("Actor:HQ:")]
+        public void NamespacedMmrpMapsEveryFingerByName(string prefix)
+        {
+            var root = new GameObject("NamespacedMmrp");
+            try
+            {
+                foreach (var name in StandardBodyBones)
+                {
+                    var sourceName = name.Replace("UpperArm", "Arm").Replace("LowerArm", "ForeArm")
+                        .Replace("UpperLeg", "UpLeg").Replace("LowerLeg", "Leg").Replace("Toes", "ToeBase");
+                    if (name == "Chest") sourceName = "Spine1";
+                    new GameObject(prefix + sourceName).transform.SetParent(root.transform, false);
+                }
+                var phalanges = new[] { "Proximal", "Intermediate", "Distal" };
+                foreach (var side in new[] { "Left", "Right" })
+                    foreach (var finger in new[] { "Thumb", "Index", "Middle", "Ring", "Pinky" })
+                        for (var i = 1; i <= 4; i++)
+                            new GameObject(prefix + side + "Hand" + finger + i).transform.SetParent(root.transform, false);
+                var method = typeof(OptiTrackMotionBindingService).GetMethod(
+                    "TryBuildStandardHumanoid", BindingFlags.NonPublic | BindingFlags.Static);
+                var args = new object[] { root, null, null, null };
+                Assert.That((bool)method.Invoke(null, args), Is.True, args[3] as string);
+                var human = (HumanBone[])args[1];
+                foreach (var side in new[] { "Left", "Right" })
+                    foreach (var finger in new[] { "Thumb", "Index", "Middle", "Ring", "Little" })
+                        for (var i = 0; i < 3; i++)
+                            Assert.That(human.Single(b => b.humanName == side + " " + finger + " " + phalanges[i]).boneName,
+                                Is.EqualTo(prefix + side + "Hand" + (finger == "Little" ? "Pinky" : finger) + (i + 1)));
+                Assert.That(OptiTrackMotionBindingService.DetectSourceFormat(root.transform), Is.EqualTo(MocapSourceFormat.MMRP));
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
         [Test]
         public void StandardHumanoidMappingReportsMissingRequiredBones()
         {
