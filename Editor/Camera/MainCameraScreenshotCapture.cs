@@ -4,7 +4,6 @@ using System.Reflection;
 using UnityEditor;
 using UnityEditor.ShortcutManagement;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 #if UNITY_2021_2_OR_NEWER
 using UnityEditor.Overlays;
@@ -20,10 +19,9 @@ namespace YAMO.UnityTools.Editor
         private const string AlphaMenuPath = "Tools/YAMO/Camera/Screenshot Include Alpha";
         private const string AlphaPreferenceKey = "YAMO.MainCameraScreenshot.IncludeAlpha";
         private const string OutputFolder = "Assets/Screenshots";
-        private const int FallbackWidth = 1920;
-        private const int FallbackHeight = 1080;
-        private const string UniversalRenderPipelineAssetTypeName =
-            "UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset";
+
+
+
 
         private static bool IncludeAlpha => EditorPrefs.GetBool(AlphaPreferenceKey, false);
 
@@ -57,8 +55,8 @@ namespace YAMO.UnityTools.Editor
 
             try
             {
-                CaptureToPath(outputPath);
-                Debug.Log($"[YAMO Screenshot] Saved ({(IncludeAlpha ? "RGBA" : "Opaque RGB")}): {outputPath}");
+                Vector2Int size = CaptureToPath(outputPath);
+                Debug.Log($"[YAMO Screenshot] Saved Game View {size.x}x{size.y} ({(IncludeAlpha ? "RGBA" : "Opaque RGB")}): {outputPath}");
             }
             catch (Exception ex)
             {
@@ -71,17 +69,13 @@ namespace YAMO.UnityTools.Editor
         }
 
         /// <summary>Use the shortcut capture renderer with an explicit PNG destination.</summary>
-        public static void CaptureToPath(string outputPath)
+        public static Vector2Int CaptureToPath(string outputPath)
         {
             if (string.IsNullOrEmpty(outputPath))
                 throw new ArgumentException("Screenshot output path is empty.", nameof(outputPath));
             if (!Path.IsPathRooted(outputPath))
                 outputPath = Path.Combine(Directory.GetParent(Application.dataPath).FullName, outputPath);
-            var camera = Camera.main;
-            if (camera == null)
-                throw new InvalidOperationException("MainCamera 태그가 지정된 카메라를 찾을 수 없습니다.");
-            Vector2Int size = ResolveGameViewSize(camera);
-            CaptureCamera(camera, size.x, size.y, outputPath);
+            return CaptureGameView(outputPath);
         }
 
         [Shortcut(ShortcutId)]
@@ -90,164 +84,117 @@ namespace YAMO.UnityTools.Editor
             Capture();
         }
 
-        private static void CaptureCamera(Camera camera, int width, int height, string outputPath)
+        // Read the displayed final frame. Camera.Render() uses a separate offscreen
+        // render path and can change HDR, post effects, camera stacking and temporal effects.
+        private static Vector2Int CaptureGameView(string outputPath)
         {
-            var previousTarget = camera.targetTexture;
-            var previousActive = RenderTexture.active;
-            object renderPipelineAsset = null;
-            PropertyInfo renderScaleProperty = null;
-            float previousRenderScale = 1f;
-            bool renderScaleOverridden = false;
-            RenderTexture renderTexture = null;
-            RenderTexture outputTexture = null;
-            Texture2D texture = null;
+            RenderTexture source = GetDisplayedGameViewTexture();
+            if (source == null || !source.IsCreated())
+                throw new InvalidOperationException(
+                    "Game View에 렌더된 화면이 없습니다. Game 탭을 열어 화면이 보이게 한 뒤 다시 촬영하세요.");
 
+            var previousActive = RenderTexture.active;
+            RenderTexture resolved = null;
+            Texture2D texture = null;
             try
             {
-                float captureScale = 1f;
-                if (TryGetUrpRenderScale(
-                        out renderPipelineAsset,
-                        out renderScaleProperty,
-                        out previousRenderScale) &&
-                    previousRenderScale > 1f)
+                RenderTexture readable = source;
+                if (source.antiAliasing > 1)
                 {
-                    captureScale = previousRenderScale;
-
-                    // URP 12 applies Render Scale's final scaling pass even when a Camera renders
-                    // into an explicitly-sized targetTexture. That mixes the Game View coordinates
-                    // with the offscreen target coordinates and can shift the captured image.
-                    // Render at the scaled resolution directly, then downsample ourselves instead.
-                    renderScaleProperty.SetValue(renderPipelineAsset, 1f);
-                    renderScaleOverridden = true;
+                    var descriptor = source.descriptor;
+                    descriptor.msaaSamples = 1;
+                    descriptor.depthBufferBits = 0;
+                    descriptor.bindMS = false;
+                    resolved = RenderTexture.GetTemporary(descriptor);
+                    source.ResolveAntiAliasedSurface(resolved);
+                    readable = resolved;
                 }
 
-                int renderWidth = Mathf.Max(1, Mathf.RoundToInt(width * captureScale));
-                int renderHeight = Mathf.Max(1, Mathf.RoundToInt(height * captureScale));
-                renderTexture = RenderTexture.GetTemporary(
-                    renderWidth,
-                    renderHeight,
-                    24,
-                    RenderTextureFormat.ARGB32);
-                renderTexture.filterMode = FilterMode.Bilinear;
-
-                outputTexture = renderTexture;
-                if (renderWidth != width || renderHeight != height)
-                {
-                    outputTexture = RenderTexture.GetTemporary(
-                        width,
-                        height,
-                        0,
-                        RenderTextureFormat.ARGB32);
-                    outputTexture.filterMode = FilterMode.Bilinear;
-                }
-
-                // Opaque mode discards compositing alpha (including SSR). Alpha mode
-                // preserves the camera output for captures that need transparency.
-                texture = new Texture2D(width, height,
+                RenderTexture.active = readable;
+                texture = new Texture2D(source.width, source.height,
                     IncludeAlpha ? TextureFormat.RGBA32 : TextureFormat.RGB24, false);
-                camera.targetTexture = renderTexture;
-                camera.Render();
-
-                if (outputTexture != renderTexture)
-                    Graphics.Blit(renderTexture, outputTexture);
-
-                RenderTexture.active = outputTexture;
-                texture.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                texture.Apply();
-
+                texture.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0, false);
+                // The Editor displays its final render target with a vertical UV flip
+                // on top-origin graphics backends (D3D/Metal). PNG rows are bottom-origin.
+                if (SystemInfo.graphicsUVStartsAtTop)
+                {
+                    var pixels = texture.GetPixels32();
+                    int rowWidth = source.width;
+                    for (int y = 0; y < source.height / 2; y++)
+                    {
+                        int top = y * rowWidth;
+                        int bottom = (source.height - 1 - y) * rowWidth;
+                        for (int x = 0; x < rowWidth; x++)
+                        {
+                            Color32 pixel = pixels[top + x];
+                            pixels[top + x] = pixels[bottom + x];
+                            pixels[bottom + x] = pixel;
+                        }
+                    }
+                    texture.SetPixels32(pixels);
+                }
+                texture.Apply(false, false);
                 Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
                 File.WriteAllBytes(outputPath, texture.EncodeToPNG());
+                return new Vector2Int(source.width, source.height);
             }
             finally
             {
-                camera.targetTexture = previousTarget;
                 RenderTexture.active = previousActive;
-
-                if (outputTexture != null && outputTexture != renderTexture)
-                    RenderTexture.ReleaseTemporary(outputTexture);
-                if (renderTexture != null)
-                    RenderTexture.ReleaseTemporary(renderTexture);
+                if (resolved != null)
+                    RenderTexture.ReleaseTemporary(resolved);
                 if (texture != null)
                     UnityEngine.Object.DestroyImmediate(texture);
-
-                if (renderScaleOverridden)
-                    renderScaleProperty.SetValue(renderPipelineAsset, previousRenderScale);
             }
         }
 
-        private static bool TryGetUrpRenderScale(
-            out object renderPipelineAsset,
-            out PropertyInfo renderScaleProperty,
-            out float renderScale)
+        private static RenderTexture GetDisplayedGameViewTexture()
         {
-            renderPipelineAsset = GraphicsSettings.currentRenderPipeline;
-            renderScaleProperty = null;
-            renderScale = 1f;
+            var gameViewType = typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView");
+            if (gameViewType == null)
+                throw new NotSupportedException("이 Unity 버전에서 Game View를 찾을 수 없습니다.");
 
-            if (renderPipelineAsset == null)
-                return false;
-
-            Type assetType = renderPipelineAsset.GetType();
-            Type currentType = assetType;
-            while (currentType != null && currentType.FullName != UniversalRenderPipelineAssetTypeName)
-                currentType = currentType.BaseType;
-
-            if (currentType == null)
-                return false;
-
-            renderScaleProperty = assetType.GetProperty(
-                "renderScale",
-                BindingFlags.Instance | BindingFlags.Public);
-
-            if (renderScaleProperty == null ||
-                !renderScaleProperty.CanRead ||
-                !renderScaleProperty.CanWrite ||
-                renderScaleProperty.PropertyType != typeof(float))
+            // Prefer the Game View the user is looking at; otherwise use the main one.
+            EditorWindow view = EditorWindow.focusedWindow;
+            if (view == null || !gameViewType.IsInstanceOfType(view))
             {
-                renderScaleProperty = null;
-                return false;
+                var playModeView = gameViewType.BaseType;
+                var getMain = playModeView?.GetMethod("GetMainPlayModeView",
+                    BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                view = getMain?.Invoke(null, null) as EditorWindow;
             }
 
-            renderScale = (float)renderScaleProperty.GetValue(renderPipelineAsset);
-            return true;
+            if (view == null || !gameViewType.IsInstanceOfType(view))
+            {
+                foreach (var candidate in Resources.FindObjectsOfTypeAll(gameViewType))
+                {
+                    var window = candidate as EditorWindow;
+                    if (window != null && ReadGameViewTexture(window) != null)
+                        return ReadGameViewTexture(window);
+                }
+                return null;
+            }
+
+            return ReadGameViewTexture(view);
         }
 
-        private static Vector2Int ResolveGameViewSize(Camera camera)
+        private static RenderTexture ReadGameViewTexture(EditorWindow view)
         {
-            Vector2 size = TryGetMainGameViewSize();
-            int width = Mathf.RoundToInt(size.x);
-            int height = Mathf.RoundToInt(size.y);
-
-            if (width > 0 && height > 0)
-                return new Vector2Int(width, height);
-
-            width = Mathf.RoundToInt(camera.pixelWidth);
-            height = Mathf.RoundToInt(camera.pixelHeight);
-            if (width > 0 && height > 0)
-                return new Vector2Int(width, height);
-
-            return new Vector2Int(FallbackWidth, FallbackHeight);
-        }
-
-        private static Vector2 TryGetMainGameViewSize()
-        {
-            try
+            // PlayModeView owns the final target in current Unity versions.
+            // Keep the older GameView field as a compatibility fallback.
+            foreach (string fieldName in new[] { "m_TargetTexture", "m_RenderTexture" })
             {
-                var gameViewType = typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView");
-                var method = gameViewType?.GetMethod(
-                    "GetSizeOfMainGameView",
-                    BindingFlags.NonPublic | BindingFlags.Static);
-
-                if (method == null)
-                    return Vector2.zero;
-
-                object result = method.Invoke(null, null);
-                return result is Vector2 size ? size : Vector2.zero;
+                for (Type type = view.GetType(); type != null; type = type.BaseType)
+                {
+                    var field = type.GetField(fieldName,
+                        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public |
+                        BindingFlags.DeclaredOnly);
+                    var target = field?.GetValue(view) as RenderTexture;
+                    if (target != null && target.IsCreated())
+                        return target;
+                }
             }
-            catch
-            {
-                return Vector2.zero;
-            }
+            return null;
         }
 
         private static string BuildOutputPath(Camera camera)

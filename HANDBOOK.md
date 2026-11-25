@@ -584,3 +584,9 @@ namespace YAMO.UnityTools.Editor
 ## 0.10.4: 현재 선택 대상
 
 Hub 및 단독 도구의 작업 대상은 실행 시점의 Hierarchy/Project 선택을 따릅니다. 입력 드래그 대신 현재 대상 이름을 읽기 전용으로 표시합니다. 선택 해제 또는 타입 불일치 시 이전 대상에 실행하지 않습니다. 검사 결과는 선택 변경 시 무효화하며 Bake 출력 경로도 새 대상으로 재설정합니다. 출력 폴더/템플릿/참조 클립 등 보조 입력은 유지합니다. Facial Optimizer는 선택한 AnimationClip들, Clip Reducer/Remapper는 선택한 AnimationClip을 사용합니다.
+
+## 0.10.5: Shared facial conversion and Game View capture
+
+FacialCsvToAnimation.cs / FacialCsvToAnimationWindow.cs and FacialFbxToAnimation.cs now live in Editor/Animation. The old Assets/Scripts/Editor copies must be removed when migrating to avoid duplicate classes and menu registrations. Both menus support Unity 2021.3; the CSV main toolbar button is gated to Unity 6.3+. See FacialConversion_README.md for input and output rules.
+
+Editor/Assets/InstantiateSelectedPrefab.cs adds the selected prefab to the active scene with Undo. MainCameraScreenshotCapture reads the final displayed Game View render target. MMRP namespace and MotionBuilder mapping remain shared across projects. Avatar Snapshot updates are excluded.
