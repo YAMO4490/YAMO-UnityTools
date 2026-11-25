@@ -8,7 +8,9 @@ using UnityEngine.UIElements;
 namespace YAMO.UnityTools.Editor
 {
     // Editor-only preset labels remain valid across Play Mode transitions.
+    #if UNITY_7000_0_OR_NEWER
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+    #endif
     public class AnimClipReducerWindow : EditorWindow
     {
         private const string CommonUssPath = "Assets/Scripts/Streamingle/StreamingleControl/Editor/UXML/StreamingleCommon.uss";

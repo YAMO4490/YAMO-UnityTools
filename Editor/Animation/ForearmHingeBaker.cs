@@ -58,7 +58,7 @@ namespace YAMO.UnityTools.Editor
             SessionState.EraseString(K_ORIGCTRL);
 
             // Recorder 컴포넌트 제거 + 원본 컨트롤러 복원
-            var go = EditorUtility.EntityIdToObject(EntityId.FromULong(goInstanceID)) as GameObject;
+            var go = YamoUnityVersionCompat.ResolveObject(goInstanceID) as GameObject;
             if (go != null)
             {
                 var recorder = go.GetComponent<YAMO.UnityTools.ForearmHingeRecorder>();
@@ -93,7 +93,9 @@ namespace YAMO.UnityTools.Editor
     // EditorWindow
     // ================================================================
     // Open editor window identity must survive its Play Mode bake round trip.
+    #if UNITY_7000_0_OR_NEWER
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+    #endif
     public class ForearmHingeBaker : EditorWindow
     {
         private static ForearmHingeBaker _instance;
@@ -337,7 +339,7 @@ namespace YAMO.UnityTools.Editor
             SessionState.SetBool  ("YAMO.ForearmHinge.PendingBake",     true);
             SessionState.SetString("YAMO.ForearmHinge.NewClipPath",     DetermineNewClipPath(sourceClip));
             SessionState.SetInt   ("YAMO.ForearmHinge.SampleRate",      sampleRate);
-            SessionState.SetString("YAMO.ForearmHinge.AnimGOInstanceID",EntityId.ToULong(animator.gameObject.GetEntityId()).ToString());
+            SessionState.SetString("YAMO.ForearmHinge.AnimGOInstanceID",YamoUnityVersionCompat.ObjectId(animator.gameObject).ToString());
             SessionState.SetString("YAMO.ForearmHinge.TempCtrlPath",   TempCtrlPath);
             SessionState.SetString("YAMO.ForearmHinge.OrigCtrlPath",   origCtrlPath);
 

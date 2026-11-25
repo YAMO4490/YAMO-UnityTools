@@ -9,7 +9,9 @@ namespace YAMO.UnityTools.Editor
 /// 3ds Max Biped이나 다른 본 구조를 Unity 표준 이름으로 변환
 /// </summary>
 // Editor humanoid bone-name lookup is immutable after initialization.
+#if UNITY_7000_0_OR_NEWER
 [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+#endif
 public class HumanBoneRenamer : EditorWindow
 {
     private Avatar targetAvatar;

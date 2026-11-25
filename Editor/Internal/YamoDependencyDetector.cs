@@ -30,7 +30,9 @@ namespace YAMO.UnityTools.Editor.Internal
 {
     [InitializeOnLoad]
     // Editor dependency detector configuration is immutable after initialization.
+    #if UNITY_7000_0_OR_NEWER
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+    #endif
     internal static class YamoDependencyDetector
     {
         // (어셈블리 이름, 주입할 define 심볼) 쌍. 여기에 추가하면 감지 대상이 늘어남.
@@ -50,7 +52,7 @@ namespace YAMO.UnityTools.Editor.Internal
 
         private static void Sync()
         {
-            var loadedAssemblies = UnityEngine.Assemblies.CurrentAssemblies.GetLoadedAssemblies()
+            var loadedAssemblies = YamoUnityVersionCompat.LoadedAssemblies()
                 .Select(a => a.GetName().Name)
                 .ToHashSet();
 

@@ -452,13 +452,13 @@ namespace YAMO.UnityTools.Editor
                     log.Info($"  - {path} | sharedMesh=NULL | mat={smr.sharedMaterials?.Length ?? 0}");
                     continue;
                 }
-                ulong meshId = EntityId.ToULong(mesh.GetEntityId());
+                ulong meshId = YamoUnityVersionCompat.ObjectId(mesh);
                 log.Info($"  - {path} | sharedMesh='{mesh.name}' | verts={mesh.vertexCount} | " +
                          $"submeshes={mesh.subMeshCount} | meshID={meshId} | mat={smr.sharedMaterials?.Length ?? 0}");
             }
             // 동일 mesh 가 여러 SMR 에 공유되고 있는지 별도 표기
             var grouped = smrs.Where(s => s.sharedMesh != null)
-                              .GroupBy(s => EntityId.ToULong(s.sharedMesh.GetEntityId()))
+                              .GroupBy(s => YamoUnityVersionCompat.ObjectId(s.sharedMesh))
                               .Where(g => g.Count() > 1)
                               .ToList();
             if (grouped.Count > 0)
@@ -488,7 +488,7 @@ namespace YAMO.UnityTools.Editor
             foreach (var m in meshes)
             {
                 log.Info($"  mesh: name='{m.name}' verts={m.vertexCount} submeshes={m.subMeshCount} " +
-                         $"meshID={EntityId.ToULong(m.GetEntityId())}");
+                         $"meshID={YamoUnityVersionCompat.ObjectId(m)}");
             }
         }
 

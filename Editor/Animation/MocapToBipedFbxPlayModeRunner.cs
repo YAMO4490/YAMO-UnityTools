@@ -102,7 +102,7 @@ namespace YAMO.UnityTools.Editor
                 state.TemporaryTargetPath = MocapTemporaryTarget.NewAssetPath();
                 targetAnimator = MocapTemporaryTarget.Create(settings.TargetAnimator, state.TemporaryTargetPath);
                 state.TargetGlobalId = GlobalObjectId.GetGlobalObjectIdSlow(targetAnimator.gameObject).ToString();
-                state.TargetInstanceId = EntityId.ToULong(targetAnimator.gameObject.GetEntityId());
+                state.TargetInstanceId = YamoUnityVersionCompat.ObjectId(targetAnimator.gameObject);
                 // The isolated target has no original scene controller to restore.
                 state.OriginalControllerPath = string.Empty;
                 state.OriginalControllerInstanceId = 0;
@@ -172,7 +172,7 @@ namespace YAMO.UnityTools.Editor
                 TargetGlobalId = string.Empty,
                 TargetInstanceId = 0,
                 OriginalControllerPath = AssetDatabase.GetAssetPath(originalController),
-                OriginalControllerInstanceId = originalController != null ? EntityId.ToULong(originalController.GetEntityId()) : 0,
+                OriginalControllerInstanceId = originalController != null ? YamoUnityVersionCompat.ObjectId(originalController) : 0,
                 TemporaryControllerPath = $"Assets/Codex/{DateTime.Now:yyyy-MM-dd}/MocapPipeline/{token}/Bake.controller",
                 ResultDirectory = resultDirectory,
                 FbxOutputDirectory = Path.GetFullPath(settings.FbxOutputDirectory),
@@ -444,7 +444,7 @@ namespace YAMO.UnityTools.Editor
                     return gameObject.GetComponent<Animator>();
             }
 
-            var fallback = EditorUtility.EntityIdToObject(EntityId.FromULong(state.TargetInstanceId)) as GameObject;
+            var fallback = YamoUnityVersionCompat.ResolveObject(state.TargetInstanceId) as GameObject;
             return fallback != null ? fallback.GetComponent<Animator>() : null;
         }
 
@@ -456,7 +456,7 @@ namespace YAMO.UnityTools.Editor
                 if (controller != null)
                     return controller;
             }
-            return EditorUtility.EntityIdToObject(EntityId.FromULong(state.OriginalControllerInstanceId)) as RuntimeAnimatorController;
+            return YamoUnityVersionCompat.ResolveObject(state.OriginalControllerInstanceId) as RuntimeAnimatorController;
         }
 
         private static void CleanupSceneAndController(RunnerState state, Animator animator)

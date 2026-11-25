@@ -97,7 +97,7 @@ namespace YAMO.UnityTools.Editor
             Texture adjustMask = mat.HasProperty("_MainColorAdjustMask") ? mat.GetTexture("_MainColorAdjustMask") : null;
 
             string key = (hasSource ? AssetDatabase.AssetPathToGUID(srcPath) : "(none)") + "|" + color + "|" + hsvg + "|" + gradStrength
-                       + "|" + (gradTex ? EntityId.ToULong(gradTex.GetEntityId()) : 0) + "|" + (adjustMask ? EntityId.ToULong(adjustMask.GetEntityId()) : 0);
+                       + "|" + (gradTex ? YamoUnityVersionCompat.ObjectId(gradTex) : 0) + "|" + (adjustMask ? YamoUnityVersionCompat.ObjectId(adjustMask) : 0);
 
             if (!cache.TryGetValue(key, out Texture2D bakedAsset))
             {

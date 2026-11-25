@@ -38,7 +38,9 @@ using UnityEngine;
 namespace YAMO.UnityTools.Editor
 {
     // Editor reflection metadata is cached for the lifetime of its loaded assembly.
+    #if UNITY_7000_0_OR_NEWER
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+    #endif
     internal static class YamoFbxExportCompat
     {
         private const string ModelExporterFullName  = "UnityEditor.Formats.Fbx.Exporter.ModelExporter";
@@ -252,7 +254,7 @@ namespace YAMO.UnityTools.Editor
         {
             // 모든 로드된 어셈블리에서 검색 — UPM 패키지(asmdef) / 임베디드(default 어셈블리)
             // 어디에 있어도 잡힌다.
-            foreach (var asm in UnityEngine.Assemblies.CurrentAssemblies.GetLoadedAssemblies())
+            foreach (var asm in YamoUnityVersionCompat.LoadedAssemblies())
             {
                 Type t;
                 try { t = asm.GetType(fullName, false); }

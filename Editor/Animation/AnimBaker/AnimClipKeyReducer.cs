@@ -5,7 +5,9 @@ using UnityEngine;
 namespace YAMO.UnityTools.Editor
 {
     // Editor-only muscle-name lookup is immutable after initialization.
+    #if UNITY_7000_0_OR_NEWER
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
+    #endif
     public static class AnimClipKeyReducer
     {
         public enum FitMode

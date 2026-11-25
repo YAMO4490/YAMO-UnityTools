@@ -65,8 +65,8 @@ namespace YAMO.UnityTools.Editor.Tests
             var root = new GameObject("EntityIdProbe");
             try
             {
-                var stored = EntityId.ToULong(root.GetEntityId());
-                Assert.That(UnityEditor.EditorUtility.EntityIdToObject(EntityId.FromULong(stored)),
+                var stored = YamoUnityVersionCompat.ObjectId(root);
+                Assert.That(YamoUnityVersionCompat.ResolveObject(stored),
                     Is.SameAs(root));
             }
             finally { Object.DestroyImmediate(root); }

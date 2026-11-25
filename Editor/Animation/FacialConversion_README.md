@@ -7,3 +7,7 @@
 - Screenshot capture reads the displayed Game View final render target, including post processing and camera stacking; a rendered Game View is required.
 - MMRP namespace and MotionBuilder bone aliases use the shared upstream mapping fix e76e8a5.
 - Avatar Snapshot changes are excluded from this release.
+
+## 0.10.6 compatibility fix
+
+Unity 7 lifecycle attributes are version guarded. Object IDs, assembly lookup and preview-scene cloning use a shared version adapter, and scene renderer queries support Unity 2021.3.
