@@ -62,7 +62,7 @@ namespace YAMO.UnityTools.Editor
             EditorGUILayout.LabelField("원본 Armature 루트", EditorStyles.boldLabel);
 
             EditorGUI.BeginChangeCheck();
-            _source = (GameObject)EditorGUILayout.ObjectField(
+            _source = (GameObject)YamoSelectionTargetGUI.Draw(
                 new GUIContent("Armature Root"), _source, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck())
             {

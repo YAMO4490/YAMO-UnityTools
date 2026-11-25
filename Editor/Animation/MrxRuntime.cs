@@ -18,6 +18,7 @@ namespace YAMO.UnityTools.Editor
             toolDirectory = Path.Combine(root, "Tools~", "Mrx");
             return Path.Combine(toolDirectory, "project_bundle.py");
         }
+        private const string StreamingleAssets = "F:/Streamingle_URP/Assets";
 
         private static string ToolDirectory => toolDirectory ??
             Path.GetFullPath(Path.Combine(PackageAssetPath, "Tools~", "Mrx"));
@@ -30,16 +31,9 @@ namespace YAMO.UnityTools.Editor
 
             yield return Path.Combine(ToolDirectory, "Runtime", Platform);
             yield return Path.GetFullPath(Path.Combine("Assets/StreamingAssets/StreamingleRecording", Platform));
+            yield return Path.Combine(StreamingleAssets, "StreamingAssets/StreamingleRecording", Platform);
         }
 
-        internal static string BindPosePath()
-        {
-            var configured = Environment.GetEnvironmentVariable("YAMO_MRX_BIND_POSE");
-            var path = !string.IsNullOrWhiteSpace(configured) ? configured : FindFile("tpose_bind.json");
-            if (string.IsNullOrEmpty(path) || !File.Exists(path))
-                throw new FileNotFoundException("MMRP tpose_bind.json is missing. Place it in the MRX runtime folder or set YAMO_MRX_BIND_POSE.", path);
-            return path;
-        }
         internal static string FindFile(string name) =>
             RuntimeRoots().Select(root => Path.Combine(root, name)).FirstOrDefault(File.Exists);
 

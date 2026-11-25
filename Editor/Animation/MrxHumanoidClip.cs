@@ -168,7 +168,8 @@ namespace YAMO.UnityTools.Editor
             }
         }
 
-        internal static JToken ReadBindPose() => JObject.Parse(File.ReadAllText(MrxRuntime.BindPosePath()))["bones"];
+        internal static JToken ReadBindPose() => JObject.Parse(File.ReadAllText(
+            "Packages/com.yamo.unitytools/Tools~/Mrx/tpose_bind.json"))["bones"];
 
         internal static Quaternion BindRotation(JToken bind)
         {

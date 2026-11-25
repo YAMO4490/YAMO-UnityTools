@@ -47,7 +47,7 @@ namespace YAMO.UnityTools.Editor
             int    sampleRate  = SessionState.GetInt(K_RATE, 30);
             string tmpCtrlPath = SessionState.GetString(K_TMPCTRL, "");
             string origCtrlPath= SessionState.GetString(K_ORIGCTRL, "");
-            int goInstanceID; int.TryParse(SessionState.GetString(K_GOID, string.Empty), out goInstanceID);
+            ulong goInstanceID; ulong.TryParse(SessionState.GetString(K_GOID, string.Empty), out goInstanceID);
 
             // SessionState 초기화
             SessionState.EraseBool(K_PENDING);
@@ -58,7 +58,7 @@ namespace YAMO.UnityTools.Editor
             SessionState.EraseString(K_ORIGCTRL);
 
             // Recorder 컴포넌트 제거 + 원본 컨트롤러 복원
-            var go = EditorUtility.InstanceIDToObject(goInstanceID) as GameObject;
+            var go = EditorUtility.EntityIdToObject(EntityId.FromULong(goInstanceID)) as GameObject;
             if (go != null)
             {
                 var recorder = go.GetComponent<YAMO.UnityTools.ForearmHingeRecorder>();
@@ -93,9 +93,7 @@ namespace YAMO.UnityTools.Editor
     // EditorWindow
     // ================================================================
     // Open editor window identity must survive its Play Mode bake round trip.
-#if UNITY_7000_0_OR_NEWER
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
-#endif
     public class ForearmHingeBaker : EditorWindow
     {
         private static ForearmHingeBaker _instance;
@@ -125,7 +123,7 @@ namespace YAMO.UnityTools.Editor
         void OnGUI()
         {
             EditorGUILayout.Space(4);
-            animator   = EditorGUILayout.ObjectField("Animator (씬)", animator,   typeof(Animator),      true)  as Animator;
+            animator   = YamoSelectionTargetGUI.Draw("Animator (씬)", animator,   typeof(Animator),      true)  as Animator;
             sourceClip = EditorGUILayout.ObjectField("소스 클립",     sourceClip, typeof(AnimationClip), false) as AnimationClip;
 
             EditorGUILayout.Space(4);
@@ -339,7 +337,7 @@ namespace YAMO.UnityTools.Editor
             SessionState.SetBool  ("YAMO.ForearmHinge.PendingBake",     true);
             SessionState.SetString("YAMO.ForearmHinge.NewClipPath",     DetermineNewClipPath(sourceClip));
             SessionState.SetInt   ("YAMO.ForearmHinge.SampleRate",      sampleRate);
-            SessionState.SetString("YAMO.ForearmHinge.AnimGOInstanceID",animator.gameObject.GetInstanceID().ToString());
+            SessionState.SetString("YAMO.ForearmHinge.AnimGOInstanceID",EntityId.ToULong(animator.gameObject.GetEntityId()).ToString());
             SessionState.SetString("YAMO.ForearmHinge.TempCtrlPath",   TempCtrlPath);
             SessionState.SetString("YAMO.ForearmHinge.OrigCtrlPath",   origCtrlPath);
 

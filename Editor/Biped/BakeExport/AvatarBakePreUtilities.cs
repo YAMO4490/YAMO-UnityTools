@@ -13,6 +13,8 @@ using UnityEngine;
 
 namespace YAMO.UnityTools.Editor
 {
+    // Editor bone-name lookup tables are immutable after initialization.
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public static class AvatarBakePreUtilities
     {
         // ============================================================

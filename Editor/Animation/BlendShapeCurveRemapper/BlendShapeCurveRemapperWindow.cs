@@ -83,7 +83,7 @@ namespace YAMO.UnityTools.Editor
         {
             EditorGUILayout.LabelField("1. AnimationClip", EditorStyles.boldLabel);
             EditorGUI.BeginChangeCheck();
-            AnimationClip nextClip = (AnimationClip)EditorGUILayout.ObjectField(
+            AnimationClip nextClip = (AnimationClip)YamoSelectionTargetGUI.Draw(
                 "Source Clip",
                 _sourceClip,
                 typeof(AnimationClip),

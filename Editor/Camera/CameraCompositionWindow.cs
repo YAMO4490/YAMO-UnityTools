@@ -64,14 +64,16 @@ namespace YAMO.UnityTools.Editor
         // ----------------------------------------------------------------
         void OnEnable()
         {
-            Camera.onPostRender                       += OnPostRender;
+            Camera.onPostRender                       += HandleCameraPostRender;
             RenderPipelineManager.endCameraRendering  += OnEndCameraRendering;
+            UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
         }
 
         void OnDisable()
         {
-            Camera.onPostRender                       -= OnPostRender;
+            Camera.onPostRender                       -= HandleCameraPostRender;
             RenderPipelineManager.endCameraRendering  -= OnEndCameraRendering;
+            UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
         }
 
         void OnDestroy()
@@ -88,6 +90,7 @@ namespace YAMO.UnityTools.Editor
         // ----------------------------------------------------------------
         void OnGUI()
         {
+            EditorGUI.BeginChangeCheck();
             DrawCompositionsSection();
             DrawAppearanceSection();
             DrawOverridesSection();
@@ -95,8 +98,8 @@ namespace YAMO.UnityTools.Editor
 
             // 옵션이 변경되면 게임 뷰가 다시 그려지도록 강제
             // (Camera.onPostRender / endCameraRendering 가 그릴 때 최신 상태 반영)
-            SceneView.RepaintAll();
-            UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
+            if (EditorGUI.EndChangeCheck())
+                UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
         }
 
         void DrawCompositionsSection()
@@ -145,9 +148,15 @@ namespace YAMO.UnityTools.Editor
         {
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("All On",  GUILayout.Height(20)))
+            {
                 for (int i = 0; i < _visible.Length; i++) _visible[i] = true;
+                GUI.changed = true;
+            }
             if (GUILayout.Button("All Off", GUILayout.Height(20)))
+            {
                 for (int i = 0; i < _visible.Length; i++) _visible[i] = false;
+                GUI.changed = true;
+            }
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.Space(4);
         }
@@ -187,7 +196,10 @@ namespace YAMO.UnityTools.Editor
             EditorGUILayout.Space(4);
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Align with Scene View", GUILayout.Height(24)))
+            {
                 AlignWithSceneView();
+                GUI.changed = true;
+            }
             using (new EditorGUI.DisabledScope(!_hasRevertCached))
             {
                 if (GUILayout.Button("Revert", GUILayout.Width(80), GUILayout.Height(24)))
@@ -195,6 +207,7 @@ namespace YAMO.UnityTools.Editor
                     Undo.RecordObject(_targetCamera.transform, "Revert Camera");
                     _targetCamera.transform.position = _revertCameraPosition;
                     _targetCamera.transform.rotation = _revertCameraRotation;
+                    GUI.changed = true;
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -220,7 +233,7 @@ namespace YAMO.UnityTools.Editor
         // ----------------------------------------------------------------
         // 카메라 렌더 콜백
         // ----------------------------------------------------------------
-        void OnPostRender(Camera cam)
+        void HandleCameraPostRender(Camera cam)
         {
             // Built-in render pipeline 경로
             if (!ShouldDrawOnCamera(cam)) return;
@@ -264,32 +277,45 @@ namespace YAMO.UnityTools.Editor
             if (w <= 0 || h <= 0) return;
             if (_opacity <= 0f) return;
 
+            // SRP can leave its intermediate render target bound when the
+            // end-camera callback runs. Offscreen captures need the camera's
+            // actual output texture, not that intermediate target.
+            var previousTarget = RenderTexture.active;
+            if (cam.targetTexture != null)
+                RenderTexture.active = cam.targetTexture;
             GL.PushMatrix();
-            GL.LoadPixelMatrix(0, w, 0, h);
-            _lineMaterial.SetPass(0);
-
-            GL.Begin(GL.QUADS);
-
-            float t = _thickness;
-
-            if (_visible[(int)CompositionType.RuleOfThirds])
+            try
             {
-                GL.Color(ResolveColor((int)CompositionType.RuleOfThirds));
-                DrawRuleOfThirds(w, h, t);
-            }
-            if (_visible[(int)CompositionType.Cross])
-            {
-                GL.Color(ResolveColor((int)CompositionType.Cross));
-                DrawCross(w, h, t);
-            }
-            if (_visible[(int)CompositionType.SafeArea])
-            {
-                GL.Color(ResolveColor((int)CompositionType.SafeArea));
-                DrawSafeArea(w, h, t);
-            }
+                GL.LoadPixelMatrix(0, w, 0, h);
+                _lineMaterial.SetPass(0);
 
-            GL.End();
-            GL.PopMatrix();
+                GL.Begin(GL.QUADS);
+
+                float t = _thickness;
+
+                if (_visible[(int)CompositionType.RuleOfThirds])
+                {
+                    GL.Color(ResolveColor((int)CompositionType.RuleOfThirds));
+                    DrawRuleOfThirds(w, h, t);
+                }
+                if (_visible[(int)CompositionType.Cross])
+                {
+                    GL.Color(ResolveColor((int)CompositionType.Cross));
+                    DrawCross(w, h, t);
+                }
+                if (_visible[(int)CompositionType.SafeArea])
+                {
+                    GL.Color(ResolveColor((int)CompositionType.SafeArea));
+                    DrawSafeArea(w, h, t);
+                }
+
+                GL.End();
+            }
+            finally
+            {
+                GL.PopMatrix();
+                RenderTexture.active = previousTarget;
+            }
         }
 
         /// <summary>항목 색상 × 전역 Tint, 알파는 항목 색상 알파 × 전역 Opacity.</summary>

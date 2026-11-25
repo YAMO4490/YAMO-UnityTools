@@ -63,9 +63,7 @@ namespace YAMO.UnityTools.Editor
     /// the mocap window's binding-only tool and the batch pipeline workflows.
     /// </summary>
     // Editor mapping tables and reflection caches are assembly-lifetime metadata.
-#if UNITY_7000_0_OR_NEWER
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
-#endif
     public static class OptiTrackMotionBindingService
     {
         private const string SpineBone = "_Spine1";
@@ -586,11 +584,11 @@ namespace YAMO.UnityTools.Editor
             var transforms = root.GetComponentsInChildren<Transform>(true);
             if (transforms.Any(transform => transform.name.EndsWith("_Hips", StringComparison.OrdinalIgnoreCase)))
                 return MocapSourceFormat.OptiTrack;
-            if (transforms.Any(transform => string.Equals(transform.name, "Hips", StringComparison.OrdinalIgnoreCase)))
+            if (transforms.Any(transform => string.Equals(WithoutMmrpNamespace(transform.name), "Hips", StringComparison.OrdinalIgnoreCase)))
                 return MocapSourceFormat.MMRP;
             // Alternate MMRP exports have no _Hips suffix. Require the complete
             // characteristic chain rather than guessing from a generic Hip name.
-            var names = new HashSet<string>(transforms.Select(transform => transform.name),
+            var names = new HashSet<string>(transforms.Select(transform => WithoutMmrpNamespace(transform.name)),
                 StringComparer.OrdinalIgnoreCase);
             if (new[] { "Hip", "Ab", "Spine2", "Spine4" }.All(names.Contains))
                 return MocapSourceFormat.MMRP;
@@ -733,7 +731,7 @@ namespace YAMO.UnityTools.Editor
             GameObject instance = null;
             try
             {
-                instance = (GameObject)PrefabUtility.InstantiatePrefab(model, clone);
+                instance = (GameObject)UnityEngine.Object.Instantiate(model, clone);
                 instance.name = model.name;
                 var tool = typeof(UnityEditor.Editor).Assembly.GetType("UnityEditor.AvatarSetupTool");
                 const BindingFlags flags = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
@@ -864,6 +862,19 @@ namespace YAMO.UnityTools.Editor
                         aliases[$"{side} {finger} {phalanges[index]}"] =
                             $"{side[0]}{(finger == "Little" ? "Pinky" : finger)}{index + 1}";
 
+            // MotionBuilder-style MMRP FBXs use Arm/ForeArm and UpLeg/Leg.
+            var motionBuilderAliases = new Dictionary<string, string> { { "Chest", "Spine1" } };
+            foreach (var side in new[] { "Left", "Right" })
+            {
+                motionBuilderAliases[side + "UpperArm"] = side + "Arm";
+                motionBuilderAliases[side + "LowerArm"] = side + "ForeArm";
+                motionBuilderAliases[side + "UpperLeg"] = side + "UpLeg";
+                motionBuilderAliases[side + "LowerLeg"] = side + "Leg";
+                motionBuilderAliases[side + "Toes"] = side + "ToeBase";
+            }
+            table = table.Select(pair => new KeyValuePair<string, string[]>(pair.Key,
+                motionBuilderAliases.TryGetValue(pair.Key, out var alternate)
+                    ? pair.Value.Concat(new[] { alternate }).ToArray() : pair.Value)).ToList();
             return table.Select(pair => new KeyValuePair<string, string[]>(pair.Key,
                 aliases.TryGetValue(pair.Key, out var alias)
                     ? pair.Value.Concat(new[] { alias }).ToArray()
@@ -892,6 +903,18 @@ namespace YAMO.UnityTools.Editor
 
             var transforms = model.GetComponentsInChildren<Transform>(true);
             var transformsByName = IndexByName(transforms);
+            // FBX actor namespaces (HQ:, BS:, etc.) are not part of a bone's
+            // semantic name. Keep the actual name in HumanBone, but resolve the
+            // standard table against unambiguous namespace-free names first.
+            foreach (var group in transforms.GroupBy(t => WithoutMmrpNamespace(t.name), StringComparer.OrdinalIgnoreCase))
+            {
+                if (group.Count() != 1)
+                {
+                    error = "중복 MMRP 본 이름: " + group.Key;
+                    return false;
+                }
+                transformsByName[group.Key] = group.Single();
+            }
             if (!transformsByName.ContainsKey("Hips") && !transformsByName.ContainsKey("Hip"))
             {
                 error = "Hips 본 없음";
@@ -945,13 +968,18 @@ namespace YAMO.UnityTools.Editor
             return human.Length > 0 && skeleton.Length > 0;
         }
 
+        private static string WithoutMmrpNamespace(string name)
+        {
+            return name.Substring(name.LastIndexOf(':') + 1);
+        }
+
         private static void NormalizeHipOriginRestPose(Transform root, HumanBone[] human, SkeletonBone[] skeleton)
         {
             // Some Hip/Ab FBXs store their rest pose around the pelvis origin,
             // with both feet below zero. Mecanim derives humanScale from this
             // reference height; leaving Hip at zero amplifies all RootT motion.
             var hipsMapping = human.FirstOrDefault(b => b.humanName == "Hips");
-            if (hipsMapping.boneName != "Hip")
+            if (string.IsNullOrEmpty(hipsMapping.boneName) || WithoutMmrpNamespace(hipsMapping.boneName) != "Hip")
                 return;
             var transforms = root.GetComponentsInChildren<Transform>(true);
             var hips = transforms.First(t => t.name == hipsMapping.boneName);

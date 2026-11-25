@@ -150,6 +150,8 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
     /// </summary>
     public void DrawGUI()
     {
+        if(targetPrefab != Selection.activeGameObject){duplicateMaterialMap.Clear();duplicateTextureMap.Clear();collectedMaterials.Clear();collectedTextures.Clear();materialCopies.Clear();textureCopies.Clear();}
+
         GUILayout.Label("\uD83C\uDF1F 머테리얼 & 텍스처 유틸리티", EditorStyles.boldLabel);
 
         scroll = EditorGUILayout.BeginScrollView(scroll);
@@ -158,7 +160,7 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         sec1Foldout = DrawFoldoutSectionHeader(sec1Foldout, "📦  머테리얼 / 텍스처 관리");
         if (sec1Foldout)
         {
-            targetPrefab = (GameObject)EditorGUILayout.ObjectField("\uD83D\uDCE6 타겟 프리팹", targetPrefab, typeof(GameObject), true);
+            targetPrefab = (GameObject)YamoSelectionTargetGUI.Draw("\uD83D\uDCE6 타겟 프리팹", targetPrefab, typeof(GameObject), true);
             EditorGUILayout.BeginHorizontal();
             materialOutputPath = EditorGUILayout.TextField("\uD83D\uDCC2 머테리얼 저장 경로", materialOutputPath);
             if (GUILayout.Button("선택", GUILayout.Width(60)))
@@ -612,7 +614,7 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
             MessageType.Info);
 
         // 섹션 1 의 타겟을 그대로 사용
-        targetPrefab = (GameObject)EditorGUILayout.ObjectField("📦 타겟 (씬 오브젝트)", targetPrefab, typeof(GameObject), true);
+        targetPrefab = (GameObject)YamoSelectionTargetGUI.Draw("📦 타겟 (씬 오브젝트)", targetPrefab, typeof(GameObject), true);
 
         GUILayout.Label($"NiloToon {NiloToonConvertCore.InstalledNiloToonVersion}  (요구: {NiloToonConvertCore.MinimumNiloToonVersion} 이상)", EditorStyles.miniLabel);
 
@@ -737,12 +739,12 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
                 duplicateMaterialMap[mat.name].Add(mat);
 
                 Shader shader = mat.shader;
-                int count = ShaderUtil.GetPropertyCount(shader);
+                int count = shader.GetPropertyCount();
                 for (int i = 0; i < count; i++)
                 {
                     // 텍스처가 아닌 속성에 GetTexture 를 호출하면 Unity 가 속성마다 에러 로그를 찍는다 (CopyTextures 와 동일한 가드)
-                    if (ShaderUtil.GetPropertyType(shader, i) != ShaderUtil.ShaderPropertyType.TexEnv) continue;
-                    string propName = ShaderUtil.GetPropertyName(shader, i);
+                    if (shader.GetPropertyType(i) != UnityEngine.Rendering.ShaderPropertyType.Texture) continue;
+                    string propName = shader.GetPropertyName(i);
                     Texture tex = mat.GetTexture(propName);
                     if (tex == null || seenTextures.Contains(tex)) continue;
                     seenTextures.Add(tex);
@@ -855,20 +857,20 @@ public class MaterialAndTextureCollectorWindow : EditorWindow
         IDictionary<string, string> maxMainTextureGuidMap)
     {
         Shader shader = original.shader;
-        int count = ShaderUtil.GetPropertyCount(shader);
+        int count = shader.GetPropertyCount();
         Texture mainTextureForMax = GetMainTextureForMax(original);
 
         string[] maskProps = { "_MaskMap", "_OcclusionMap", "_DetailMask", "_RoughnessMap", "_MetallicGlossMap" };
 
         for (int i = 0; i < count; i++)
         {
-            string prop = ShaderUtil.GetPropertyName(shader, i);
+            string prop = shader.GetPropertyName(i);
 
             // ⚠ 속성 타입 검사를 GetTexture보다 먼저 할 것.
             //    텍스처가 아닌 속성(Float/Color/Vector)에 GetTexture를 호출하면 Unity가
             //    "Material X ... doesn't have a texture property Y" 에러를 찍는다. 반환값은 null이라
             //    기능상 문제는 없지만, 아바타 1개당 수십 건씩 쌓여 콘솔에서 진짜 에러가 묻힌다.
-            bool isTexEnv = ShaderUtil.GetPropertyType(shader, i) == ShaderUtil.ShaderPropertyType.TexEnv;
+            bool isTexEnv = shader.GetPropertyType(i) == UnityEngine.Rendering.ShaderPropertyType.Texture;
             bool isMask = System.Array.IndexOf(maskProps, prop) >= 0;
             if (!isTexEnv && !isMask) continue;
 

@@ -8,6 +8,8 @@ namespace YAMO.UnityTools.Editor
 /// 아바타의 휴먼본 이름을 Unity Human Bone 기준으로 변환하는 에디터 툴
 /// 3ds Max Biped이나 다른 본 구조를 Unity 표준 이름으로 변환
 /// </summary>
+// Editor humanoid bone-name lookup is immutable after initialization.
+[Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
 public class HumanBoneRenamer : EditorWindow
 {
     private Avatar targetAvatar;

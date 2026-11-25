@@ -145,8 +145,25 @@ namespace YAMO.UnityTools.Editor
         /// <summary>
         /// 외부(예: Tool Hub) 에서 호출해 임베드할 수 있는 GUI 본체.
         /// </summary>
+        private GameObject _selectionContext;
+        private bool _selectionContextInitialized;
+        private void ResetSelectionContext(){
+            if(_selectionContextInitialized && _selectionContext==Selection.activeGameObject)return;
+            _selectionContextInitialized=true;
+            _selectionContext=Selection.activeGameObject;
+            _duplicateGroups.Clear(); _duplicateSearched=false;
+            _invalidScaleBones.Clear(); _invalidScaleSearched=false;
+            _missingBoneResults.Clear(); _missingBoneSearched=false;
+            _inactiveObjects.Clear(); _inactiveSearched=false;
+            _emptyCleanerResult=null; _emptyCleanerScanned=false; _stage2Selected.Clear();
+            _magicaSymmetryEntries.Clear(); _magicaSymmetryScanned=false;
+            _bonelessSmrEntries.Clear(); _bonelessSmrScanned=false;
+            _fbxMaterialReport=null;
+            _magicaSplitterReport=null;
+        }
         public void DrawGUI()
         {
+            ResetSelectionContext();
             EditorGUILayout.LabelField("YAMO Asset Checker", EditorStyles.boldLabel);
             int newIndex = GUILayout.Toolbar(
                 (int)_activeCategory, CategoryLabels, GUILayout.Height(26));
@@ -284,7 +301,7 @@ namespace YAMO.UnityTools.Editor
             if (!_foldDuplicates) return;
 
             EditorGUI.indentLevel++;
-            _duplicateRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _duplicateRoot, typeof(GameObject), true);
+            _duplicateRoot = (GameObject)YamoSelectionTargetGUI.Draw("Target Root", _duplicateRoot, typeof(GameObject), true);
 
             EditorGUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(_duplicateRoot == null))
@@ -394,7 +411,7 @@ namespace YAMO.UnityTools.Editor
             if (!_foldMissingScripts) return;
 
             EditorGUI.indentLevel++;
-            _scriptTargetObject = (GameObject)EditorGUILayout.ObjectField("Target", _scriptTargetObject, typeof(GameObject), true);
+            _scriptTargetObject = (GameObject)YamoSelectionTargetGUI.Draw("Target", _scriptTargetObject, typeof(GameObject), true);
 
             using (new EditorGUI.DisabledScope(_scriptTargetObject == null))
             {
@@ -548,7 +565,7 @@ namespace YAMO.UnityTools.Editor
                 "실행 시 원본은 유지되고 사본을 생성해 해당 사본에서 작업합니다.",
                 MessageType.None);
 
-            _emptyCleanerRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _emptyCleanerRoot, typeof(GameObject), true);
+            _emptyCleanerRoot = (GameObject)YamoSelectionTargetGUI.Draw("Target Root", _emptyCleanerRoot, typeof(GameObject), true);
 
             using (new EditorGUI.DisabledScope(_emptyCleanerRoot == null))
             {
@@ -758,7 +775,7 @@ namespace YAMO.UnityTools.Editor
                 "비활성 부모의 자식도 모두 포함됩니다.",
                 MessageType.None);
 
-            _inactiveFinderRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _inactiveFinderRoot, typeof(GameObject), true);
+            _inactiveFinderRoot = (GameObject)YamoSelectionTargetGUI.Draw("Target Root", _inactiveFinderRoot, typeof(GameObject), true);
 
             using (new EditorGUI.DisabledScope(_inactiveFinderRoot == null))
             {
@@ -830,7 +847,7 @@ namespace YAMO.UnityTools.Editor
                 "첫 컴포넌트는 남기고 나머지는 같은 부모 아래에 생성합니다. 설정·본·콜라이더 참조와 활성 상태를 유지하며, Undo로 되돌릴 수 있습니다.",
                 MessageType.None);
             EditorGUI.BeginChangeCheck();
-            _magicaSplitterRoot = (GameObject)EditorGUILayout.ObjectField(
+            _magicaSplitterRoot = (GameObject)YamoSelectionTargetGUI.Draw(
                 "대상 아바타", _magicaSplitterRoot, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck())
             {
@@ -899,7 +916,7 @@ namespace YAMO.UnityTools.Editor
                 "X_Symmetry + 반대편 Primary 본(예: LeftHand → RightHand)으로 설정합니다. Biped 본은 타겟으로 쓰지 않습니다.",
                 MessageType.None);
 
-            _magicaSymmetryRoot = (GameObject)EditorGUILayout.ObjectField("Target Root", _magicaSymmetryRoot, typeof(GameObject), true);
+            _magicaSymmetryRoot = (GameObject)YamoSelectionTargetGUI.Draw("Target Root", _magicaSymmetryRoot, typeof(GameObject), true);
 
             using (new EditorGUI.DisabledScope(_magicaSymmetryRoot == null))
             {
@@ -1067,20 +1084,13 @@ namespace YAMO.UnityTools.Editor
 
             EditorGUILayout.HelpBox(
                 "베이크할 아바타 루트의 Materials / SubMeshes 대응을 검사합니다 (비활성 자식 포함).\n" +
-                "슬롯 수 불일치, 빈 서브메시, 누락/반복 재질을 읽기 전용으로 검사하고 해결 방법을 표시합니다.",
+                "슬롯 수 불일치, 빈 서브메시, 누락/반복 재질을 검사합니다. 반복 재질은 자동 해결로 사본을 배정할 수 있습니다.",
                 MessageType.None);
             EditorGUI.BeginChangeCheck();
-            _fbxMaterialRoot = (GameObject)EditorGUILayout.ObjectField(
+            _fbxMaterialRoot = (GameObject)YamoSelectionTargetGUI.Draw(
                 "Target Root", _fbxMaterialRoot, typeof(GameObject), true);
             if (EditorGUI.EndChangeCheck()) _fbxMaterialReport = null;
-            using (new EditorGUI.DisabledScope(Selection.activeGameObject == null))
-            {
-                if (GUILayout.Button("선택 오브젝트를 Target Root로"))
-                {
-                    _fbxMaterialRoot = Selection.activeGameObject;
-                    _fbxMaterialReport = null;
-                }
-            }
+
             using (new EditorGUI.DisabledScope(_fbxMaterialRoot == null))
             {
                 if (GUILayout.Button("Scan Material Slots"))
@@ -1098,6 +1108,48 @@ namespace YAMO.UnityTools.Editor
                 MessageType.Info);
             if (_fbxMaterialReport.RendererCount > 0 && _fbxMaterialReport.Issues.Count == 0)
                 EditorGUILayout.HelpBox("머티리얼 슬롯의 사전 검사에서 문제를 찾지 못했습니다.", MessageType.Info);
+
+            var repeatedRenderers = new HashSet<Renderer>();
+            foreach (var issue in _fbxMaterialReport.Issues)
+            {
+                if (issue.Kind == FbxMaterialSlotChecker.IssueKind.RepeatedMaterial &&
+                    issue.Renderer != null && !EditorUtility.IsPersistent(issue.Renderer))
+                    repeatedRenderers.Add(issue.Renderer);
+            }
+            using (new EditorGUI.DisabledScope(repeatedRenderers.Count == 0))
+            {
+                if (GUILayout.Button($"전체 자동 해결: 중복 머티리얼 복제 ({repeatedRenderers.Count}개 Renderer)"))
+                {
+                    Undo.IncrementCurrentGroup();
+                    int undoGroup = Undo.GetCurrentGroup();
+                    Undo.SetCurrentGroupName("Fix all repeated material slots");
+                    int fixedSlots = 0;
+                    int failures = 0;
+                    try
+                    {
+                        foreach (var renderer in repeatedRenderers)
+                        {
+                            try
+                            {
+                                fixedSlots += FbxMaterialSlotChecker.FixRepeatedMaterials(renderer);
+                            }
+                            catch (System.Exception exception)
+                            {
+                                failures++;
+                                Debug.LogException(exception, renderer);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        Undo.CollapseUndoOperations(undoGroup);
+                        _fbxMaterialReport = FbxMaterialSlotChecker.Scan(_fbxMaterialRoot);
+                    }
+                    Debug.Log($"[YAMO] 전체 중복 머티리얼 해결: {fixedSlots}개 슬롯 복제, 실패 Renderer {failures}개. " +
+                        "슬롯 배정은 한 번의 Undo로 되돌릴 수 있으며 생성된 머티리얼 자산은 유지됩니다.");
+                    GUIUtility.ExitGUI();
+                }
+            }
 
             foreach (var issue in _fbxMaterialReport.Issues)
             {
@@ -1122,6 +1174,28 @@ namespace YAMO.UnityTools.Editor
                     $"Materials {issue.MaterialCount} / SubMeshes {issue.SubMeshCount}", EditorStyles.boldLabel);
                 EditorGUILayout.HelpBox(issue.Reason, issue.BlocksBake ? MessageType.Error : MessageType.Warning);
                 EditorGUILayout.LabelField("해결: " + issue.Solution, EditorStyles.wordWrappedLabel);
+                if (issue.Kind == FbxMaterialSlotChecker.IssueKind.RepeatedMaterial)
+                {
+                    using (new EditorGUI.DisabledScope(issue.Renderer == null || EditorUtility.IsPersistent(issue.Renderer)))
+                    {
+                        if (GUILayout.Button("자동 해결: 중복 머티리얼 복제"))
+                        {
+                            try
+                            {
+                                int fixedSlots = FbxMaterialSlotChecker.FixRepeatedMaterials(issue.Renderer);
+                                Debug.Log($"[YAMO] 중복 머티리얼 {fixedSlots}개 복제 완료 (Assets/YAMO_MaterialSlotCopies). " +
+                                    "슬롯 배정은 Undo로 되돌릴 수 있으며 생성된 머티리얼 자산은 유지됩니다.");
+                            }
+                            catch (System.Exception exception)
+                            {
+                                Debug.LogException(exception);
+                            }
+                            _fbxMaterialReport = FbxMaterialSlotChecker.Scan(_fbxMaterialRoot);
+                            GUIUtility.ExitGUI();
+                        }
+                    }
+                    EditorGUILayout.LabelField("서브메시에 대응하는 중복 슬롯에만 사본을 배정합니다. 사본 위치: Assets/YAMO_MaterialSlotCopies", EditorStyles.wordWrappedLabel);
+                }
                 EditorGUILayout.EndVertical();
             }
         }

@@ -29,6 +29,8 @@ using UnityEngine;
 
 namespace YAMO.UnityTools.Editor
 {
+    // Editor shader feature/version caches remain valid across Play Mode transitions.
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public static class NiloToonConvertCore
     {
         public const string BackupRootFolder = "Assets/MaterialsBackup";   // 생성 위치일 뿐, 이후 이동돼도 무방
@@ -589,7 +591,7 @@ namespace YAMO.UnityTools.Editor
 
         private static System.Type FindType(string fullName)
         {
-            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            foreach (var asm in UnityEngine.Assemblies.CurrentAssemblies.GetLoadedAssemblies())
             {
                 var t = asm.GetType(fullName);
                 if (t != null) return t;

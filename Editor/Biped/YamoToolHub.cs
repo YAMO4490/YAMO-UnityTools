@@ -36,6 +36,9 @@ namespace YAMO.UnityTools.Editor
             MaterialAndTexture,
             YamoAssetChecker,
             Animation,
+#if UNITY_6000_0_OR_NEWER
+            DeferredCompatibility,
+#endif
         }
 
         private static readonly string[] TabLabels =
@@ -44,6 +47,9 @@ namespace YAMO.UnityTools.Editor
             "Material & Texture",
             "Asset Checker",
             "Animation",
+#if UNITY_6000_0_OR_NEWER
+            "Deferred 호환",
+#endif
         };
 
         [SerializeField] private Tab _activeTab = Tab.AvatarBakePrefab;
@@ -74,6 +80,9 @@ namespace YAMO.UnityTools.Editor
         private BipedDeconverterWindow            _bipedDeconverterInstance;
         private MaterialAndTextureCollectorWindow _materialTextureInstance;
         private YamoAssetChecker                  _assetCheckerInstance;
+#if UNITY_6000_0_OR_NEWER
+        private DeferredAvatarCompatibilityWindow _deferredInstance;
+#endif
 
         [MenuItem("Tools/YAMO/⚡ Tool Hub")]
         public static void Open()
@@ -117,6 +126,10 @@ namespace YAMO.UnityTools.Editor
                 _materialTextureInstance = ScriptableObject.CreateInstance<MaterialAndTextureCollectorWindow>();
             if (_assetCheckerInstance == null)
                 _assetCheckerInstance = ScriptableObject.CreateInstance<YamoAssetChecker>();
+#if UNITY_6000_0_OR_NEWER
+            if (_deferredInstance == null)
+                _deferredInstance = ScriptableObject.CreateInstance<DeferredAvatarCompatibilityWindow>();
+#endif
         }
 
         private void OnDisable()
@@ -127,6 +140,9 @@ namespace YAMO.UnityTools.Editor
             if (_bipedDeconverterInstance != null) DestroyImmediate(_bipedDeconverterInstance);
             if (_materialTextureInstance != null)  DestroyImmediate(_materialTextureInstance);
             if (_assetCheckerInstance != null)     DestroyImmediate(_assetCheckerInstance);
+#if UNITY_6000_0_OR_NEWER
+            if (_deferredInstance != null) DestroyImmediate(_deferredInstance);
+#endif
         }
 
         private void OnGUI()
@@ -156,6 +172,11 @@ namespace YAMO.UnityTools.Editor
                 case Tab.Animation:
                     DrawAnimationTab();
                     break;
+#if UNITY_6000_0_OR_NEWER
+                case Tab.DeferredCompatibility:
+                    if (_deferredInstance != null) _deferredInstance.DrawGUI();
+                    break;
+#endif
             }
         }
 
@@ -234,6 +255,12 @@ namespace YAMO.UnityTools.Editor
                 desc:  "휴머노이드 머슬 클립 압축. RDP/Cubic Hermite 키 감소,\n" +
                        "채널별 tolerance, 미사용 채널 드롭, YAML 후처리.",
                 onClick: () => GetWindow<AnimClipReducerWindow>("Anim Clip Reducer"));
+#if UNITY_6000_0_OR_NEWER
+            DrawLauncherButton(
+                title: "4. Avatar Snapshot",
+                desc:  "Play Mode의 아바타 포즈와 블렌드셰이프를 편집 가능한 프리팹으로 저장.",
+                onClick: AvatarSnapshotWindow.Open);
+#endif
         }
 
         private static void DrawLauncherButton(string title, string desc, System.Action onClick)

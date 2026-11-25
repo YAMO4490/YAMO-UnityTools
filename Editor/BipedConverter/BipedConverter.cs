@@ -6,6 +6,8 @@ using UnityEngine.SceneManagement;
 
 namespace YAMO.UnityTools.Editor
 {
+    // Editor conversion tables are immutable after initialization.
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public static class BipedConverter
     {
         // ------------------------------------------------------------------

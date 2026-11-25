@@ -25,6 +25,8 @@ namespace YAMO.UnityTools.Editor
     /// 바인딩(path / propertyName / 블렌드셰이프 이름)을 그대로 보존하므로,
     /// 결과 .anim 은 기존과 동일하게 어떤 캐릭터에도 적용할 수 있다.
     /// </summary>
+    // Open editor window identity is owned by OnEnable/OnDisable, not Play Mode.
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public class FacialAnimationBaker : EditorWindow
     {
         private static FacialAnimationBaker _instance;
@@ -72,8 +74,14 @@ namespace YAMO.UnityTools.Editor
         // GUI
         // ---------------------------------------------------------------------
 
+        private bool selectionSnapshotInitialized;
+        private readonly List<AnimationClip> selectionSnapshot = new List<AnimationClip>();
+
         private void OnGUI()
         {
+            var current=Selection.objects.OfType<AnimationClip>().ToList();
+            if(!selectionSnapshotInitialized || !selectionSnapshot.SequenceEqual(current)){selectionSnapshotInitialized=true;selectionSnapshot.Clear();selectionSnapshot.AddRange(current);clips.Clear();clips.AddRange(current);}
+
             EditorGUILayout.LabelField("Facial Animation Optimizer", EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
                 ".anim 페이셜 클립의 커브를 최적화해 용량을 줄입니다.\n" +
@@ -91,12 +99,6 @@ namespace YAMO.UnityTools.Editor
                     DrawClipEntry(i);
                     EditorGUILayout.Space(2);
                 }
-            }
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                if (GUILayout.Button("+ Add Slot")) clips.Add(null);
-                if (GUILayout.Button("Add Selected .anim")) AddSelectedClips();
-                if (GUILayout.Button("Clear")) { clips.Clear(); selections.Clear(); }
             }
 
             EditorGUILayout.Space(4);
@@ -199,7 +201,7 @@ namespace YAMO.UnityTools.Editor
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     var prev = clips[i];
-                    clips[i] = (AnimationClip)EditorGUILayout.ObjectField(clips[i], typeof(AnimationClip), false);
+                    EditorGUILayout.LabelField(clips[i] ? clips[i].name : "선택 없음");
                     if (prev != clips[i] && prev != null) selections.Remove(prev);
 
                     if (GUILayout.Button("×", GUILayout.Width(24)))
