@@ -1183,7 +1183,7 @@ namespace YAMO.UnityTools.Editor
                             try
                             {
                                 int fixedSlots = FbxMaterialSlotChecker.FixRepeatedMaterials(issue.Renderer);
-                                Debug.Log($"[YAMO] 중복 머티리얼 {fixedSlots}개 복제 완료 (Assets/YAMO_MaterialSlotCopies). " +
+                                Debug.Log($"[YAMO] 중복 머티리얼 {fixedSlots}개 복제 완료 (각 원본 머티리얼과 같은 폴더). " +
                                     "슬롯 배정은 Undo로 되돌릴 수 있으며 생성된 머티리얼 자산은 유지됩니다.");
                             }
                             catch (System.Exception exception)
@@ -1194,7 +1194,7 @@ namespace YAMO.UnityTools.Editor
                             GUIUtility.ExitGUI();
                         }
                     }
-                    EditorGUILayout.LabelField("서브메시에 대응하는 중복 슬롯에만 사본을 배정합니다. 사본 위치: Assets/YAMO_MaterialSlotCopies", EditorStyles.wordWrappedLabel);
+                    EditorGUILayout.LabelField("서브메시에 대응하는 중복 슬롯에만 사본을 배정합니다. 사본 위치: 각 원본 머티리얼과 같은 폴더", EditorStyles.wordWrappedLabel);
                 }
                 EditorGUILayout.EndVertical();
             }

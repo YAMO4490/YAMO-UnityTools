@@ -112,9 +112,16 @@ namespace YAMO.UnityTools.Editor
                 {
                     var source = materials[i];
                     if (source == null || seen.Add(source)) continue;
-                    const string folder = "Assets/YAMO_MaterialSlotCopies";
-                    if (!AssetDatabase.IsValidFolder(folder))
-                        AssetDatabase.CreateFolder("Assets", "YAMO_MaterialSlotCopies");
+                    string sourcePath = AssetDatabase.GetAssetPath(source);
+                    string folder = string.IsNullOrEmpty(sourcePath)
+                        ? null
+                        : System.IO.Path.GetDirectoryName(sourcePath)?.Replace('\\', '/');
+                    if (string.IsNullOrEmpty(folder) || !AssetDatabase.IsValidFolder(folder))
+                        throw new System.InvalidOperationException(
+                            $"머티리얼 '{source.name}'의 원본 폴더를 찾을 수 없어 복제할 수 없습니다. 머티리얼을 자산으로 저장한 뒤 다시 시도하세요.");
+                    if (!AssetDatabase.IsOpenForEdit(sourcePath))
+                        throw new System.InvalidOperationException(
+                            $"머티리얼 '{source.name}'의 원본 위치에 쓸 수 없어 복제할 수 없습니다: {folder}");
                     string name = source.name + "_Slot" + i;
                     foreach (char c in System.IO.Path.GetInvalidFileNameChars())
                         name = name.Replace(c, '_');
