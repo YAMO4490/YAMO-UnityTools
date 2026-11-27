@@ -173,6 +173,8 @@ namespace YAMO.UnityTools.Editor
             EditorGUILayout.Space(6);
             using (new EditorGUI.DisabledScope(!HasAnyClip()))
             {
+                if (GUILayout.Button(new GUIContent("Flip Facial L/R", "선택한 오브젝트의 좌우 블렌드셰이프 키를 교환한 새 클립을 만듭니다. 최적화하지 않고 원본 키와 탄젠트를 보존합니다."), GUILayout.Height(28)))
+                    FlipAll();
                 if (GUILayout.Button("Optimize", GUILayout.Height(28)))
                     OptimizeAll();
             }
@@ -189,6 +191,50 @@ namespace YAMO.UnityTools.Editor
         }
 
         private bool HasAnyClip() => clips.Any(c => c != null);
+
+        private void FlipAll()
+        {
+            logLines.Clear();
+            string folder = (outputFolderPath ?? "").Replace('\\', '/').TrimEnd('/');
+            if (string.IsNullOrEmpty(folder)) folder = DefaultOutputFolder;
+            if (folder != "Assets" && !folder.StartsWith("Assets/", StringComparison.Ordinal))
+            {
+                Log("✗ Output 폴더는 Assets/ 하위여야 합니다.");
+                return;
+            }
+            EnsureFolderRecursive(folder);
+            foreach (var source in clips.Where(c => c != null).ToArray())
+            {
+                AnimationClip flipped = null;
+                try
+                {
+                    var allowed = GetOrScanSelection(source).include.Where(p => p.Value).Select(p => p.Key);
+                    flipped = FacialAnimationMirror.CreateFlippedClip(source, allowed, out int count);
+                    if (count == 0) { Log($"— [{source.name}] 선택 범위에 인식 가능한 L/R 키가 없습니다."); continue; }
+                    string path = folder + "/" + SanitizeFileName(source.name) + "_LRFlipped.anim";
+                    // Never overwrite the input, even when its name already has the output suffix.
+                    if (!overwriteExisting || path == AssetDatabase.GetAssetPath(source))
+                        path = AssetDatabase.GenerateUniqueAssetPath(path);
+                    var existing = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+                    if (existing != null)
+                    {
+                        Undo.RecordObject(existing, "Flip Facial L/R");
+                        EditorUtility.CopySerialized(flipped, existing);
+                        EditorUtility.SetDirty(existing);
+                    }
+                    else
+                    {
+                        AssetDatabase.CreateAsset(flipped, path);
+                        flipped = null;
+                    }
+                    AssetDatabase.SaveAssets();
+                    Log($"✓ [{source.name}] L/R 커브 {count}개 교환 → {path}");
+                    if (pingAfterExport) EditorGUIUtility.PingObject(AssetDatabase.LoadAssetAtPath<AnimationClip>(path));
+                }
+                catch (Exception e) { Log($"✗ [{source.name}] {e.Message}"); Debug.LogException(e); }
+                finally { if (flipped != null) DestroyImmediate(flipped); }
+            }
+        }
 
         private void AddSelectedClips()
         {
