@@ -698,6 +698,9 @@ namespace YAMO.UnityTools.Editor
             {
                 if (GUILayout.Button("설정 적용", GUILayout.Height(36f)))
                     ApplySetup();
+                if (GUILayout.Button(new GUIContent("Biped 원클릭 셋업",
+                    "대상 FBX 목록: Humanoid · Create From This Model · Hips=Bip001 · Pose Reset 후 설정 적용"), GUILayout.Height(36f)))
+                    ApplyBipedSetup();
             }
             DrawStatus(setupStatus);
 
@@ -830,6 +833,38 @@ namespace YAMO.UnityTools.Editor
             setStatus(added > 0 ? $"{added}개 추가됨." : "추가 가능한 FBX가 없습니다 (이미 추가됐거나 FBX가 아님).");
             if (added > 0)
                 ShowNotification(new GUIContent($"FBX {added}개를 추가했습니다."));
+        }
+
+        private void ApplyBipedSetup()
+        {
+            // Rig creation and validation require synchronous imports between steps.
+            var paths = setupTargets.Where(t => t != null).Select(AssetDatabase.GetAssetPath).Distinct().ToArray();
+            var success = 0;
+            var errors = new List<string>();
+            try
+            {
+                for (var index = 0; index < paths.Length; index++)
+                {
+                    var path = paths[index];
+                    EditorUtility.DisplayProgressBar("Biped 원클릭 셋업", path, index / (float)paths.Length);
+                    try
+                    {
+                        FbxAnimationSetupService.ApplyBiped(path);
+                        success++;
+                    }
+                    catch (Exception exception)
+                    {
+                        errors.Add($"{Path.GetFileName(path)}: {exception.Message}");
+                        Debug.LogError($"Biped 원클릭 셋업 실패 ({path}): {exception}");
+                    }
+                }
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
+            setupStatus = $"Biped 셋업 완료: {success}개 성공, {errors.Count}개 실패.";
+            if (errors.Count > 0) setupStatus += "\n" + string.Join("\n", errors);
         }
 
         private void ApplySetup()
